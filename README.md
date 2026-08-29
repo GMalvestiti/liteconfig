@@ -197,7 +197,8 @@ That writes `config/mymod.json5`:
 ```java
 @Config(
     name = "mymodfile",
-    path = "mymoddir",
+    path = "mymoddir1/mymoddir2",
+    format = ConfigFormat.JSON5,
     comment = "MyMod settings.",
     version = 3,
     stateCloner = MyModConfigCloner.class,
