@@ -21,9 +21,10 @@ mod.license="MIT"
 
 dev.debug=false
 dev.javadoc=true
-dev.snapshot=false
+dev.snapshot=true
 dev.username="Riser876"
 dev.uuid="13957e2e-2731-4479-8a6d-d42f89f8d756"
+dev.datagen=false
 
 publish.type="stable"
 publish.modrinth_id="liteconfig"
@@ -33,7 +34,7 @@ publish.curseforge_slug="liteconfig"
 publish.curseforge_client=true
 publish.curseforge_server=true
 publish.auto_release=false
-publish.dry_run=true
+publish.dry_run=false
 
 
 ["1.21"]

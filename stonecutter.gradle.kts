@@ -25,6 +25,7 @@ stonecutter parameters {
     swaps["mod_version"] = "\"${properties.get<String>("mod.version")}\";"
     swaps["minecraft"] = "\"${node.metadata.version}\";"
     constants["debug"] = properties.get<String>("dev.debug").toBoolean()
+    constants["datagen"] = properties.get<String>("dev.datagen").toBoolean()
 
     replacements {
         string(current.parsed >= "1.21.11") {
