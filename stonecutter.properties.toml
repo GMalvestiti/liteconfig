@@ -39,16 +39,30 @@ publish.dry_run=true
 ["1.21"]
 
 publish.start="1.21"
-publish.end="1.21.11"
+publish.end="1.21.10"
 
 [fabric."1.21"]
 # Mod compatibility range in fabric.mod.json/neoforge.mods.toml
-mod.mc_compat=">=1.21 <=1.21.11"
+mod.mc_compat=">=1.21 <=1.21.10"
 deps.fabric_api="0.102.0+1.21"
 
 [neoforge."1.21"]
-mod.mc_compat="[1.21, 1.21.11]"
+mod.mc_compat="[1.21, 1.21.10]"
 deps.neoforge_loader="21.0.167"
+
+
+["1.21.11"]
+
+publish.start="1.21.11"
+publish.end="1.21.11"
+
+[fabric."1.21.11"]
+mod.mc_compat=">=1.21.11 <=1.21.11"
+deps.fabric_api="0.141.6+1.21.11"
+
+[neoforge."1.21.11"]
+mod.mc_compat="[1.21.11, 1.21.11]"
+deps.neoforge_loader="21.11.45"
 
 
 ["26.1"]
