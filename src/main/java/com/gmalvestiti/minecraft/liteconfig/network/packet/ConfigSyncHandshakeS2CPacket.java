@@ -34,8 +34,8 @@ public record ConfigSyncHandshakeS2CPacket(Map<String, ConfigBytes> hashes) impl
         return new ConfigSyncHandshakeS2CPacket(ConfigPayloads.decodeHashes(buffer));
     }
 
-    @SuppressWarnings("NullableProblems")
     @Override
+    @SuppressWarnings("NullableProblems")
     public Type<? extends CustomPacketPayload> type() {
         return TYPE;
     }

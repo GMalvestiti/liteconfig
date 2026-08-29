@@ -52,10 +52,6 @@ public final class ConfigPayloads {
     }
 
     public static void encodeEntries(ByteBuf buffer, Map<String, ConfigBytes> entries) {
-        if (entries.size() > ENTRIES_PER_PACKET) {
-            throw new IllegalArgumentException("A config sync packet may contain at most " + ENTRIES_PER_PACKET + " entries");
-        }
-
         ByteBufCodecs.VAR_INT.encode(buffer, entries.size());
 
         for (Map.Entry<String, ConfigBytes> entry : entries.entrySet()) {
