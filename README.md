@@ -45,7 +45,7 @@ Maven versions include the Lite Config version and the Minecraft build target:
 The examples below target the `1.21` build.
 
 <details>
-<summary><b>Fabric — standalone</b></summary>
+<summary><b>Fabric</b></summary>
 
 ```groovy
 repositories {
@@ -69,22 +69,7 @@ Declare the dependency so the loader refuses to start without it:
 </details>
 
 <details>
-<summary><b>Fabric — embedded</b></summary>
-
-```groovy
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.0.0-1.21'
-    include 'com.gmalvestiti.minecraft:liteconfig-fabric:1.0.0-1.21'
-}
-```
-</details>
-
-<details>
-<summary><b>NeoForge — standalone</b></summary>
+<summary><b>NeoForge</b></summary>
 
 ```groovy
 repositories {
@@ -105,25 +90,6 @@ type = "required"
 versionRange = "[1.0.0,)"
 ordering = "NONE"
 side = "BOTH"
-```
-</details>
-
-<details>
-<summary><b>NeoForge — embedded</b></summary>
-
-```groovy
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    jarJar(implementation('com.gmalvestiti.minecraft:liteconfig-neoforge:1.0.0-1.21') {
-       version { 
-           strictly '1.0.0-1.21'
-           prefer '1.0.0-1.21'
-       } 
-    })
-}
 ```
 </details>
 
