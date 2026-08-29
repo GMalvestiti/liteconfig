@@ -7,7 +7,9 @@ import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.minecraft.client.Minecraft;
@@ -19,7 +21,12 @@ import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 @Mod(value = LiteConfigCommon.MOD_ID, dist = Dist.CLIENT)
 public class NeoForgeClientEntrypoint {
 
-    public NeoForgeClientEntrypoint() {
+    public NeoForgeClientEntrypoint(IEventBus modEventBus) {
+        modEventBus.addListener(NeoForgeClientEntrypoint::onClientSetup);
+        NeoForge.EVENT_BUS.addListener(NeoForgeClientEntrypoint::onLoggingOut);
+    }
+
+    private static void onClientSetup(FMLClientSetupEvent event) {
         ConfigEventExecutors.setClientMainThread(Minecraft.getInstance());
 
         ConfigSyncRegistry.setClientMainThreadExecutor(task -> Minecraft.getInstance().execute(task));
@@ -37,8 +44,6 @@ public class NeoForgeClientEntrypoint {
         });
 
         ConfigSyncRegistry.setRequestScheduler(NeoForgeClientEntrypoint::sendRequest);
-
-        NeoForge.EVENT_BUS.addListener(NeoForgeClientEntrypoint::onLoggingOut);
     }
 
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
