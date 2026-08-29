@@ -62,7 +62,7 @@ Declare the dependency so the loader refuses to start without it:
 ```json
 {
   "depends": {
-    "liteconfig": ">=1.0.0"
+    "liteconfig": ">=1.0.0-1.21"
   }
 }
 ```
@@ -87,7 +87,7 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.0.0,)"
+versionRange = "[1.0.0-1.21,)"
 ordering = "NONE"
 side = "BOTH"
 ```
