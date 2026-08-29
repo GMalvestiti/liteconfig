@@ -24,7 +24,6 @@ stonecutter parameters {
     swaps["mod_id"] = "\"${properties.get<String>("mod.id")}\";"
     swaps["mod_version"] = "\"${properties.get<String>("mod.version")}\";"
     swaps["minecraft"] = "\"${node.metadata.version}\";"
-    dependencies["fapi"] = properties.getOrNull<String>("deps.fabric_api") ?: "0"
     constants["debug"] = properties.get<String>("dev.debug").toBoolean()
 
     replacements {
@@ -36,6 +35,8 @@ stonecutter parameters {
             replace("classTweaker v2 named", "classTweaker v2 official")
             replace("FabricDataOutput", "FabricPackOutput")
             replace("FabricTagProvider", "FabricTagsProvider")
+            replace("PayloadTypeRegistry.playS2C()", "PayloadTypeRegistry.clientboundPlay()")
+            replace("PayloadTypeRegistry.playC2S()", "PayloadTypeRegistry.serverboundPlay()")
         }
     }
 }
@@ -45,12 +46,15 @@ tasks {
         group = "custom"
         description = "Publish all versions to the Maven repository"
 
+        val isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
         val isDryRun = project.findProperty("publish.dry_run")?.toString()?.toBoolean() ?: true
 
         if (isDryRun) {
-            dependsOn(stonecutter.tasks.named("publishToMavenLocal"))
+            commandLine(buildList {
+                if (isWindows) addAll(listOf("cmd", "/c", "gradlew.bat")) else add("./gradlew")
+                add("publishToMavenLocal")
+            })
         } else {
-            val isWindows = Os.isFamily(Os.FAMILY_WINDOWS)
             val isSnapshot = project.findProperty("dev.snapshot")?.toString()?.toBoolean() ?: false
             val autoRelease = project.findProperty("publish.auto_release")?.toString()?.toBoolean() ?: false
 

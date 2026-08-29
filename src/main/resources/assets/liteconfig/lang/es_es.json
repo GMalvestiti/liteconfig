@@ -1,0 +1,4 @@
+{
+  "liteconfig.disconnect.restart_required": "La configuración del servidor cambió opciones que requieren reiniciar. Reinicia el juego antes de volver a conectarte.",
+  "liteconfig.disconnect.sync_failed": "La sincronización de la configuración del servidor falló."
+}

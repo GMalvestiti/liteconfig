@@ -1,7 +1,8 @@
 # See https://stonecutter.kikugie.dev/wiki/config/properties#centralized-properties
-mod.id="easyconfig"
-mod.name="EasyConfig"
+mod.id="liteconfig"
+mod.name="LiteConfig"
 mod.group="com.gmalvestiti.minecraft"
+mod.version="1.0.0"
 
 loomx.loom_version="1.17-SNAPSHOT"
 
@@ -14,8 +15,8 @@ deps.mockito="5.23.0"
 mod.description="A minecraft JSON5/TOML configuration library"
 mod.author="GMalvestiti"
 mod.contact_homepage="https://modrinth.com/user/Riser876"
-mod.contact_sources="https://github.com/GMalvestiti/easyconfig"
-mod.contact_issues="https://github.com/GMalvestiti/easyconfig/issues"
+mod.contact_sources="https://github.com/GMalvestiti/liteconfig"
+mod.contact_issues="https://github.com/GMalvestiti/liteconfig/issues"
 mod.license="MIT"
 
 dev.debug=false
@@ -25,39 +26,53 @@ dev.username="Riser876"
 dev.uuid="13957e2e-2731-4479-8a6d-d42f89f8d756"
 
 publish.type="stable"
-publish.modrinth_id="easyconfiglib"
+publish.modrinth_id="liteconfig"
 publish.modrinth_changelog="1.21"
 publish.curseforge_id="1646424"
-publish.curseforge_slug="easyconfiglib"
+publish.curseforge_slug="liteconfig"
 publish.curseforge_client=true
 publish.curseforge_server=true
 publish.auto_release=false
-publish.dry_run=false
+publish.dry_run=true
 
 
 ["1.21"]
 
-mod.version="1.0.1"
 publish.start="1.21"
-publish.end="1.21.11"
+publish.end="1.21.10"
 
 [fabric."1.21"]
 # Mod compatibility range in fabric.mod.json/neoforge.mods.toml
 mod.mc_compat=">=1.21 <=1.21.11"
+deps.fabric_api="0.102.0+1.21"
 
 [neoforge."1.21"]
-mod.mc_compat="[1.21, 1.21.11]"
+mod.mc_compat="[1.21, 1.21.10]"
 deps.neoforge_loader="21.0.167"
+
+
+["1.21.11"]
+
+publish.start="1.21.11"
+publish.end="1.21.11"
+
+[fabric."1.21.11"]
+mod.mc_compat=">=1.21.11 <=1.21.11"
+deps.fabric_api="0.141.6+1.21.11"
+
+[neoforge."1.21.11"]
+mod.mc_compat="[1.21.11, 1.21.11]"
+deps.neoforge_loader="21.11.45"
 
 
 ["26.1"]
 
-mod.version="2.0.1"
 publish.start="26.1"
 publish.end="latest"
 
 [fabric."26.1"]
 mod.mc_compat=">=26.1"
+deps.fabric_api="0.145.1+26.1"
 
 [neoforge."26.1"]
 mod.mc_compat="[26.1,)"

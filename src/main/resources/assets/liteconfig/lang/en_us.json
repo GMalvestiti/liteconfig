@@ -1,0 +1,4 @@
+{
+  "liteconfig.disconnect.restart_required": "Server config changed restart-only settings. Restart the game before reconnecting.",
+  "liteconfig.disconnect.sync_failed": "Server configuration synchronization failed."
+}

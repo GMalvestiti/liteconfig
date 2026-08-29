@@ -17,11 +17,15 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-        "com.gmalvestiti.minecraft.easyconfig.platform.fabric.FabricEntrypoint"
+        "com.gmalvestiti.minecraft.liteconfig.platform.fabric.FabricEntrypoint"
+    ],
+    "client": [
+        "com.gmalvestiti.minecraft.liteconfig.platform.fabric.FabricClientEntrypoint"
     ]
   },
   "depends": {
     "minecraft": "${minecraft}",
-    "fabricloader": ">=${fabric_loader}"
+    "fabricloader": ">=${fabric_loader}",
+    "fabric-api": ">=${fabric_api}"
   }
 }

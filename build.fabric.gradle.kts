@@ -4,7 +4,7 @@ plugins {
 }
 
 // DO NOT set group = ...!
-version = "${property("mod.version")}"
+version = "${property("mod.version")}-${sc.current.version}"
 
 if (property("dev.snapshot").toString().toBoolean()) {
     version = "$version-SNAPSHOT"
@@ -56,6 +56,7 @@ loom {
     }
 
     runConfigs["client"].apply {
+        runDirectory = rootProject.file("runClient")
         programArguments.add("--username=${project.property("dev.username")}")
         programArguments.add("--uuid=${project.property("dev.uuid")}")
     }
@@ -66,6 +67,7 @@ dependencies {
     loomx.applyMojangMappings()
 
     modImplementation("net.fabricmc:fabric-loader:${property("deps.fabric_loader")}")
+    modImplementation("net.fabricmc.fabric-api:fabric-api:${property("deps.fabric_api")}")
 
     testImplementation("net.fabricmc:fabric-loader-junit:${property("deps.fabric_loader")}")
 }
@@ -114,6 +116,7 @@ tasks {
             register("contact_issues", "mod.contact_issues")
             register("license", "mod.license")
             register("fabric_loader", "deps.fabric_loader")
+            register("fabric_api", "deps.fabric_api")
         }
 
         filesMatching("fabric.mod.json") { expand(props) }
@@ -144,7 +147,12 @@ publishMods {
     displayName.set("${property("mod.name")} Fabric ${property("mod.version")} for ${property("publish.start")}")
     modLoaders.add("fabric")
 
+    modrinth {
+        requires("fabric-api")
+    }
+
     curseforge {
         javaVersions.add(requiredJava)
+        requires("fabric-api")
     }
 }
