@@ -347,19 +347,19 @@ public final class MyMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        // Codec registration
         LiteConfig.codecs()
             .registerCodec(IntRange.class, IntRange.CODEC)
             .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
 
+        // Holder creation
         config = LiteConfig.holder(MyModConfig.class)
             .modId("mymod")
             .onLoad(ConfigSide.SERVER, state -> System.out.println("Loaded profile " + state.profileName))
             .onUpdate(ConfigSide.BOTH, state -> System.out.println("HUD scale is now " + state.hudScale))
             .onSave(ConfigSide.SERVER, state -> System.out.println("Saved MyMod config"))
             .create();
-    }
 
-    public static void useConfig() {
         // Fast shared read. Treat the returned object as read-only.
         int currentScale = config.data().hudScale;
 
