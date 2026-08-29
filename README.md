@@ -87,7 +87,7 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.0.0-1.21,)"
+versionRange = "[1.0.0,)"
 ordering = "NONE"
 side = "BOTH"
 ```
