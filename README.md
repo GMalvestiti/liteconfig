@@ -221,7 +221,7 @@ public final class MyModConfig implements ConfigExtension {
     @Entry(comment = "Rendering backend. Applied after the next restart.", restart = true)
     public Renderer renderer = Renderer.DEFAULT;
 
-    @Entry(comment = "Profile used by server rules.")
+    @Entry(comment = {"Profile used by server rules.", "Must be lowercase, alphanumeric, or underscore."})
     @Pattern("[a-z0-9_]+")
     @Length(max = 16)
     public String profileName = "default";
