@@ -20,7 +20,7 @@ lifecycle events.
 * **Customizable entries:** control file paths, field names, comments, ignored fields, and other persistence details.
 
 **Outside Lite Config's scope:**
-* **Config screen:** Lite Config is a data layer — it does not render UI by itself.
+* **Config screen:** Lite Config is a data layer and it does not render UI by itself.
 
 **Documentation:** [Wiki](https://github.com/gmalvestiti/liteconfig/wiki)
 
