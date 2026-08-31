@@ -21,7 +21,7 @@ mod.license="MIT"
 
 dev.debug=false
 dev.javadoc=true
-dev.snapshot=true
+dev.snapshot=false
 dev.username="Riser876"
 dev.uuid="13957e2e-2731-4479-8a6d-d42f89f8d756"
 dev.datagen=false
