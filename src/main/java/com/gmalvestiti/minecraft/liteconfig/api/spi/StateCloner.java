@@ -5,9 +5,9 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 /**
  * Copies config state without sharing mutable nested objects.
  *
- * <p>LiteConfig copies for update candidates, published async snapshots, grouped loads, and
- * {@code beforeSave} isolation. The default is a JSON round-trip; declare a hand-written cloner
- * on {@code @Config} when copying is a measured hot path:
+ * <p>LiteConfig copies for caller-owned snapshots, update and sync candidates, the separately
+ * published state, and {@code beforeSave} isolation. The default is a JSON round-trip; declare a
+ * hand-written cloner on {@code @Config} when copying is a measured hot path:
  *
  * <pre>{@code
  * public final class MyModConfigCloner implements StateCloner<MyModConfig> {
@@ -27,11 +27,10 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
  *
  * <p>An implementation must preserve every persisted field: dropping one during copy corrupts
  * live state just as surely as dropping it during serialization. It must also be safe to call
- * from the holder's operation thread, since async holders copy while other threads read the
- * published state.
+ * from the config worker, while other threads may read the published state.
  *
- * <p>An implementation must expose a no-argument constructor. It is instantiated once for each
- * config registration.
+ * <p>An implementation must declare a no-argument constructor that LiteConfig can access
+ * reflectively. It is instantiated once for each config registration.
  *
  * @param <T> config root type copied by this cloner
  */

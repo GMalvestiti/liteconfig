@@ -30,8 +30,10 @@ import java.util.stream.Stream;
  * <p>A {@link Config @Config} root describes one file, and {@link #version()} is that file's
  * declared version.
  *
- * <p>The metadata structure is immutable and computed once per holder, so it is safe to cache and
- * share. Mutable property defaults are retained by reference and must be treated as read-only.
+ * <p>The metadata structure is immutable and computed once per config registration, so it is safe
+ * to cache and share. Collection and map defaults are recursively wrapped in immutable snapshots;
+ * array access returns a fresh copy. Mutable custom-codec defaults remain shared references and
+ * must be treated as read-only.
  *
  * @param type the root config class this metadata describes
  * @param comment the lines declared with {@link Config#comment()}, empty when undocumented

@@ -196,6 +196,9 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * Registers an update listener on the selected logical side's main thread.
      * {@link ConfigSide#BOTH} registers one listener for each side.
      *
+     * <p>The listener runs after an accepted local update or server sync has been published.
+     * Rejected and structurally unchanged transitions do not notify it.
+     *
      * @param side     logical side whose main thread receives the callback
      * @param listener the callback, or {@code null} to register nothing
      * @return an idempotent subscription that removes the listener when closed
@@ -205,6 +208,9 @@ public interface ConfigHolder<T> extends AutoCloseable {
     /**
      * Registers a load listener on the selected logical side's main thread.
      * {@link ConfigSide#BOTH} registers one listener for each side.
+     *
+     * <p>The listener runs after a successful explicit {@link #load()}, but not after the
+     * build-time load or a load that falls back to defaults.
      *
      * @param side     logical side whose main thread receives the callback
      * @param listener the callback, or {@code null} to register nothing
@@ -216,6 +222,9 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * Registers a save listener on the selected logical side's main thread.
      * {@link ConfigSide#BOTH} registers one listener for each side.
      *
+     * <p>The listener runs after {@link #save()} or {@link #updateAndSave(Consumer)} reaches
+     * storage. A write failure handled by a fallback policy does not notify it.
+     *
      * @param side     logical side whose main thread receives the callback
      * @param listener the callback, or {@code null} to register nothing
      * @return an idempotent subscription that removes the listener when closed
@@ -226,7 +235,8 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * Releases this holder and removes every lifecycle listener registered through it.
      *
      * <p>The shared registration is released after the last holder closes. {@link #data()} and
-     * {@link #metadata()} remain readable; lifecycle and mutation operations are rejected.
+     * {@link #metadata()} remain readable; copying and lifecycle operations are rejected, and
+     * later listener-registration attempts return a no-op subscription.
      */
     @Override
     void close();

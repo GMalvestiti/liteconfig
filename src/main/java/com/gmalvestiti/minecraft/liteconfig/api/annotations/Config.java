@@ -13,9 +13,12 @@ import java.lang.annotation.Target;
 /**
  * Marks one class as a config file root.
  *
- * <p>The class must expose a public no-argument constructor, whose field values are the
- * defaults. It may hold any field the JSON provider supports, but never a field typed with
- * another {@code @Config} class. Each registration owns exactly one file:
+ * <p>The class must declare a no-argument constructor that LiteConfig can access reflectively;
+ * its field values are the defaults. Static, transient, synthetic, and {@link Ignore @Ignore}
+ * fields are skipped; every other instance field is persisted. Such a field must be non-final
+ * and reflectively accessible, or holder creation fails. It may use a built-in supported type or
+ * an exact type registered with a custom codec, but it must not be typed with another
+ * {@code @Config} class. Each registration owns exactly one file:
  *
  * <pre>{@code
  * @Config(name = "mymod")
@@ -87,7 +90,7 @@ public @interface Config {
      * <p>Absolute paths, and relative ones that escape the config root once normalized, are
      * rejected with {@code ConfigError.INVALID_CONFIG_PATH}.
      *
-     * @return a relative directory path, or {@code ""} for the mod config root
+     * @return a relative directory path, or {@code ""} for the configured base directory
      */
     String path() default "";
 

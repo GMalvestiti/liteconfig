@@ -71,8 +71,10 @@ public record ConfigProperty(
     /**
      * Returns this property's declared default.
      *
-     * <p>Container defaults are immutable snapshots. Mutable custom-codec values remain
-     * read-only and must also be copied before preparing an editable value:
+     * <p>Collection and map defaults are recursively wrapped in immutable snapshots. An array is
+     * copied on each call, so callers may edit that copy without changing the metadata. Mutable
+     * custom-codec values remain shared references and must be treated as read-only or copied
+     * before preparing an editable value:
      *
      * <pre>{@code
      * List&lt;String&gt; defaults = new ArrayList&lt;&gt;(

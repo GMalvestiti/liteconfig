@@ -11,8 +11,8 @@ import java.lang.annotation.Target;
 /**
  * Bounds how many elements a field may hold.
  *
- * <p>Counts characters on a string, entries on a collection or map, and elements on an array.
- * Both ends are inclusive, and either may be left open:
+ * <p>Counts UTF-16 code units on a string, entries on a collection or map, and elements on an
+ * array. Both ends are inclusive, and either may be left open:
  *
  * <pre>{@code
  * @Config(name = "mymod")
@@ -26,8 +26,8 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>Violations are reported under the id {@code length.<field>}. The bounds are published on
- * {@link ConfigMetadata}.
+ * <p>Violations are reported under the id {@code length.<path>}, using the property's dotted
+ * persisted path. The bounds are published on {@link ConfigMetadata}.
  *
  * <p>Bounds that cannot be satisfied — a negative {@code min}, or a {@code min} above the
  * {@code max} — are rejected when the holder is built.

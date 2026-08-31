@@ -46,15 +46,17 @@ import java.util.function.Consumer;
  *     .create();
  * }</pre>
  *
- * <p>Defaults resolve lazily when you call a create method: {@link Platform#getConfigDir()} and a
- * platform config directory. File format, failure policies, and state cloning belong to the
+ * <p>The default base directory resolves to ./config unless overridden when
+ * {@link #create()} is called. File format, failure policies, and state cloning belong to the
  * config class.
  *
  * <p>Creating touches disk the first time a config is built: it loads the persisted state and
  * writes it back, so the config files always exist afterwards and the holder starts in sync with
  * them. A config is registered once per root directory, so building a second holder for the same
- * class hands back another handle onto that registration — the two share one state, and the
- * second build neither re-reads the file nor revisits the options set here.
+ * class and base directory hands back another handle onto that registration. The holders share
+ * one state, and the later build does not re-read the file. Its mod id must match the existing
+ * registration, while read-only access and listener registrations remain specific to the new
+ * holder.
  *
  * @param <T> the root config type
  */
@@ -261,8 +263,8 @@ public final class ConfigBuilder<T> {
      *
      * <p>Building touches disk the first time this config is built. It resolves file paths,
      * rejects invalid config models, registers extension validators, and validates defaults;
-     * then it reads what is on disk and writes the accepted state back. Every file the root owns
-     * exists once this returns, and the holder starts in sync with disk. A first run gets its
+     * then it reads what is on disk and writes the accepted state back. The config file exists
+     * once this returns, and the holder starts in sync with disk. A first run gets its
      * defaults written out; an existing valid file seeds the holder; an invalid one is moved
      * aside under a fallback read policy and replaced with defaults. Building the same config
      * again returns another handle onto the state that first build produced.

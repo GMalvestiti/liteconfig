@@ -25,8 +25,9 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>Violations are reported under the id {@code pattern.<field>}. The pattern is published on
- * {@link ConfigMetadata} for editors that validate as the player types.
+ * <p>Violations are reported under the id {@code pattern.<path>}, using the property's dotted
+ * persisted path. The pattern is published on {@link ConfigMetadata} for editors that validate
+ * as the player types.
  *
  * <p>An expression that does not compile is rejected when the holder is built, rather than on
  * the first value that reaches it.

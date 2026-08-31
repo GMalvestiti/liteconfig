@@ -7,12 +7,12 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Excludes a public field from config persistence.
+ * Excludes an instance field from config persistence.
  *
- * <p>By default, every non-static public field of a {@link Config @Config} class is written to
- * and read from the config file. Apply this annotation when a field must remain public — for
- * example, to satisfy an interface or allow mod-internal access — but should never appear in
- * the end file:
+ * <p>By default, every non-static, non-transient, non-synthetic instance field of a
+ * {@link Config @Config} class is selected for persistence; final or reflectively inaccessible
+ * fields then make holder creation fail. Apply this annotation to runtime-only state that should
+ * never appear in the file:
  *
  * <pre>{@code
  *
@@ -28,7 +28,8 @@ import java.lang.annotation.Target;
  *
  * <p>An ignored field behaves as if it did not exist from LiteConfig's point of view: it is
  * never written to the file, never read back, never commented, and never checked by the restart
- * guard. Its value is whatever the constructor sets it to after every load.
+ * guard. A newly loaded object starts with the value assigned by its constructor, after which
+ * lifecycle code may still change it.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

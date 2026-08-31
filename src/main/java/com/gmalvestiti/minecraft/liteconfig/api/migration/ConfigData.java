@@ -153,7 +153,7 @@ public interface ConfigData {
      * Moves a value from one path to another, which is how a field is renamed or nested.
      *
      * <p>Does nothing when {@code from} is absent, so a migration can safely run against a file
-     * that never had the old key:
+     * that never had the old key. In that case a blank {@code to} is not inspected:
      *
      * <pre>{@code
      * data.rename("hudscale", "hud.scale");
@@ -162,7 +162,7 @@ public interface ConfigData {
      * @param from the dotted path to move from; may be {@code null}
      * @param to the dotted path to move to; must not be {@code null} or blank
      * @return this data, so edits can be chained
-     * @throws IllegalArgumentException if {@code to} is blank
+     * @throws IllegalArgumentException if {@code from} exists and {@code to} is blank
      * @throws NullPointerException if {@code to} is {@code null}
      */
     ConfigData rename(String from, String to);

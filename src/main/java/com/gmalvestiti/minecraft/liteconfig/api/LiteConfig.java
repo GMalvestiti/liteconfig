@@ -11,9 +11,9 @@ import java.util.function.Consumer;
 /**
  * The entry point to LiteConfig.
  *
- * <p>A stateless factory: it holds no config data, performs no I/O, and never exposes a
- * runtime implementation class. Call {@link #holder(Class)}, set the mod id, and keep the
- * returned {@link ConfigHolder} for the lifetime of your mod.
+ * <p>This class holds the process-wide codec registry, but no live config state. Call
+ * {@link #holder(Class)}, set the mod id, and keep the returned {@link ConfigHolder} for the
+ * lifetime of your mod. File access begins only when the builder creates a holder.
  *
  * <pre>{@code
  * @Config(name = "mymod")                      // -> config/mymod.json5
@@ -28,9 +28,10 @@ import java.util.function.Consumer;
  * boolean hints = config.data().showHints;
  * }</pre>
  *
- * <p>Only {@link ConfigBuilder#modId(String)} is required; everything else — the {@code ASYNC}
- * holder, {@code FALLBACK} policies, and the platform config directory — is defaulted. See
- * {@link ConfigBuilder} to override them and {@link Config} for how the file path is resolved.
+ * <p>Only {@link ConfigBuilder#modId(String)} is required. The platform config directory and
+ * mutable access are builder defaults; file format, failure policies, and state cloning are
+ * declared by {@link Config}. See {@link ConfigBuilder} for holder options and {@link Config}
+ * for how the file path is resolved.
  *
  * <p>{@code create()} already loads, so {@link ConfigHolder#load()} is only needed to re-read a
  * file that changed after startup.
@@ -47,9 +48,6 @@ public final class LiteConfig {
     /**
      * Begins a holder build for one annotated root type.
      *
-     * <p>The returned builder is mutable and single-use. Nothing is validated and no file
-     * is touched until {@link ConfigBuilder#create()}, which reads the persisted state and
-     * writes it back.
      *
      * <pre>{@code
      * ConfigHolder<ModConfigs> configs = LiteConfig.holder(ModConfigs.class)

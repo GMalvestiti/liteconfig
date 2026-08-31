@@ -12,8 +12,8 @@ import java.lang.annotation.Target;
 /**
  * Bounds a numeric field to a closed interval.
  *
- * <p>Applies to the primitive number types and their wrappers. Both ends are inclusive, and
- * either may be left open:
+ * <p>Applies to primitive numeric types and subclasses of {@link Number}. Both ends are
+ * inclusive, and either may be left open:
  *
  * <pre>{@code
  * @Config(name = "mymod")
@@ -27,14 +27,15 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>The bound is enforced wherever the value enters the holder — on load, on
- * {@link ConfigHolder#update}, and on {@link ConfigHolder#updateAndSave} — and reported as a
- * violation with the id {@code range.<field>}. It is also published on
+ * <p>The bound is enforced for constructor defaults and wherever a value enters the holder — on
+ * load, on {@link ConfigHolder#update}, and on {@link ConfigHolder#updateAndSave} — and reported
+ * as a violation with the id {@code range.<path>}, using the property's dotted persisted path.
+ * It is also published on
  * {@link ConfigMetadata}, so a config screen can render the right slider without repeating the
  * numbers.
  *
- * <p>A range whose {@code min} exceeds its {@code max} can never be satisfied and is rejected
- * when the holder is built.
+ * <p>NaN bounds and a range whose {@code min} exceeds its {@code max} are rejected when the
+ * holder is built. A NaN field value is always rejected.
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
