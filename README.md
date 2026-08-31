@@ -22,7 +22,7 @@ lifecycle events.
 **Outside Lite Config's scope:**
 * **Config screen:** Lite Config is a data layer and it does not render UI by itself.
 
-**Documentation:** [Wiki](https://github.com/gmalvestiti/liteconfig/wiki)
+**Documentation:** [Wiki](https://github.com/GMalvestiti/liteconfig/wiki)
 
 ## Setup
 
