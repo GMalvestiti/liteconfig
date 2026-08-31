@@ -12,5 +12,9 @@ class LiteConfigCommonTest {
         assertEquals("liteconfig", LiteConfigCommon.MOD_ID);
         assertDoesNotThrow(LiteConfigCommon::new);
     }
-}
 
+    @Test
+    void testLogsErrorsAsWellAsExceptions() {
+        assertDoesNotThrow(() -> LiteConfigCommon.error("fatal", new AssertionError("boom")));
+    }
+}

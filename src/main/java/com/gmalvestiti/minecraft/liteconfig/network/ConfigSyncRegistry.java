@@ -77,6 +77,7 @@ public final class ConfigSyncRegistry {
             synced.addBroadcastListener(() -> broadcast(synced));
         } catch (RuntimeException | Error failure) {
             SYNCED.remove(synced.id(), synced);
+            LiteConfigCommon.error("Failed to register config sync", failure);
             throw failure;
         }
     }
@@ -130,7 +131,10 @@ public final class ConfigSyncRegistry {
 
         SYNCED.values().forEach(synced -> hashes.put(synced.id(), synced.cachedSnapshot().hash()));
         if (hashes.size() > ConfigSyncProtocol.MAX_MANIFEST_ENTRIES) {
-            throw new IllegalStateException("Config sync manifest exceeds " + ConfigSyncProtocol.MAX_MANIFEST_ENTRIES + " entries");
+            IllegalStateException failure = new IllegalStateException(
+                "Config sync manifest exceeds " + ConfigSyncProtocol.MAX_MANIFEST_ENTRIES + " entries");
+            LiteConfigCommon.error("Failed to build config sync manifest", failure);
+            throw failure;
         }
 
         List<Map<String, ConfigBytes>> batches = ConfigPayloads.batches(hashes);
@@ -258,7 +262,10 @@ public final class ConfigSyncRegistry {
         List<Map<String, ConfigBytes>> batches = ConfigPayloads.batches(configs);
 
         if (batches.size() > ConfigSyncProtocol.MAX_TRANSACTION_PACKETS) {
-            throw new IllegalArgumentException("Config sync transaction exceeds " + ConfigSyncProtocol.MAX_TRANSACTION_PACKETS + " packets");
+            IllegalArgumentException failure = new IllegalArgumentException(
+                "Config sync transaction exceeds " + ConfigSyncProtocol.MAX_TRANSACTION_PACKETS + " packets");
+            LiteConfigCommon.error("Failed to build config sync transaction", failure);
+            throw failure;
         }
 
         List<ConfigSyncS2CPacket> packets = new ArrayList<>(batches.size());

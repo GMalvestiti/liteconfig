@@ -14,7 +14,7 @@ public class LiteConfigCommon {
         LOGGER.info("[{}] {}", LiteConfigCommon.MOD_ID, message);
     }
 
-    public static void error(String message, Exception exception) {
-        LOGGER.error("[{}] {}", LiteConfigCommon.MOD_ID, message, exception);
+    public static void error(String message, Throwable failure) {
+        LOGGER.error("[{}] {}", LiteConfigCommon.MOD_ID, message, failure);
     }
 }
