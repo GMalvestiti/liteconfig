@@ -129,7 +129,7 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
     }
 
     private UpdateResult updateState(Consumer<T> mutator, boolean save) {
-        UpdateAttempt<T> attempt = state.writing(() -> {
+        ConfigOutcome<ConfigState.Transition<T>> attempt = state.writing(() -> {
             ConfigOutcome<T> candidate = exceptionHandler().onUpdate(() -> {
                 Objects.requireNonNull(mutator, "mutator");
 
@@ -143,7 +143,7 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
             });
 
             if (candidate.degraded()) {
-                return UpdateAttempt.rejected(candidate.violations());
+                return ConfigOutcome.degraded(candidate.failure().orElseThrow());
             }
 
             T next = candidate.value().orElseThrow();
@@ -151,18 +151,18 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
                 ConfigOutcome<Void> write = exceptionHandler().onWrite(
                     () -> registration.engine().save(next));
                 if (write.degraded()) {
-                    return UpdateAttempt.rejected(write.violations());
+                    return ConfigOutcome.degraded(write.failure().orElseThrow());
                 }
             }
 
-            return UpdateAttempt.published(state.replace(next));
+            return ConfigOutcome.completed(state.replace(next));
         });
 
-        if (attempt.rejected()) {
+        if (attempt.degraded()) {
             return UpdateResult.rejected(attempt.violations());
         }
 
-        ConfigState.Transition<T> transition = attempt.transition();
+        ConfigState.Transition<T> transition = attempt.value().orElseThrow();
         registration.model().callbacks().enqueueChanged(
             transition.before(), transition.after(), false).run();
         registration.notifier().notifyUpdated(transition.published());
@@ -398,22 +398,5 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
 
     private LiteConfigException closedFailure() {
         return scope().exception(ConfigError.HOLDER_CLOSED, registration.model().typeName());
-    }
-
-    private record UpdateAttempt<T>(
-        ConfigState.Transition<T> transition,
-        List<Violation> violations
-    ) {
-        private static <T> UpdateAttempt<T> published(ConfigState.Transition<T> transition) {
-            return new UpdateAttempt<>(transition, List.of());
-        }
-
-        private static <T> UpdateAttempt<T> rejected(List<Violation> violations) {
-            return new UpdateAttempt<>(null, List.copyOf(violations));
-        }
-
-        private boolean rejected() {
-            return transition == null;
-        }
     }
 }

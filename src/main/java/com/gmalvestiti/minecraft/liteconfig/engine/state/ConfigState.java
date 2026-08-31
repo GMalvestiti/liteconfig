@@ -60,11 +60,6 @@ public final class ConfigState<T> {
         return snapshot.canonical();
     }
 
-    /**
-     * Returns a deep copy of the canonical state that the caller may mutate freely.
-     *
-     * <p>Intentionally expensive: runs the configured cloner every time.
-     */
     public T copyOfCanonical() {
         return copy(snapshot.canonical());
     }
@@ -106,9 +101,6 @@ public final class ConfigState<T> {
      */
     public record View<T>(T canonical, T published) {}
 
-    /**
-     * Every slot together, so a reader can never catch one of them updated and the others not.
-     */
     private record Snapshot<T>(T canonical, T published) {}
 
     private T copy(T source) {
