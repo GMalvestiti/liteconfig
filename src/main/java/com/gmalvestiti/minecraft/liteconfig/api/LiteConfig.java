@@ -5,6 +5,9 @@ import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigCodecRegistry;
 
+import java.util.Objects;
+import java.util.function.Consumer;
+
 /**
  * The entry point to LiteConfig.
  *
@@ -61,6 +64,36 @@ public final class LiteConfig {
      */
     public static <T> ConfigBuilder<T> holder(Class<T> type) {
         return new ConfigBuilder<>(type);
+    }
+
+    /**
+     * Registers codecs on the shared registry, then begins a holder build.
+     *
+     * <pre>{@code
+     * ConfigHolder<ModConfigs> configs = LiteConfig.holder(ModConfigs.class, codecs -> codecs
+     *     .registerCodec(IntRange.class, IntRange.CODEC)
+     *     .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC))
+     *     .modId("mymod")
+     *     .create();
+     * }</pre>
+     *
+     * <p>The codecs are not owned by or scoped to the returned builder or holder. When a custom
+     * file codec rejects a value, LiteConfig falls back to reflective serialization for that use.
+     *
+     * @param type the root class annotated with {@link Config}; must not be {@code null}
+     * @param codecRegistrations registrations to attempt before creating the builder; must not be
+     *                           {@code null}
+     * @param <T> the root config type
+     * @return a builder with defaults still unresolved; never {@code null}
+     */
+    public static <T> ConfigBuilder<T> holder(
+        Class<T> type,
+        Consumer<ConfigCodecRegistry> codecRegistrations
+    ) {
+        Objects.requireNonNull(codecRegistrations, "codecRegistrations");
+        ConfigBuilder<T> builder = holder(type);
+        codecRegistrations.accept(CODEC_REGISTRY);
+        return builder;
     }
 
     /**

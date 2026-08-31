@@ -11,6 +11,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -75,6 +76,50 @@ class ConfigCodecRegistryTest {
 
         assertEquals(new RgbColor(3, 4), holder.data().primary);
         assertEquals(List.of(new RgbColor(8, 9), new RgbColor(10, 11)), holder.data().palette);
+    }
+
+    @Test
+    void testRegistersProcessWideCodecsWhileCreatingAHolder(@TempDir Path tempDir) throws Exception {
+        Codec<HolderValue> codec = Codec.INT.xmap(HolderValue::new, HolderValue::value);
+        StreamCodec<ByteBuf, HolderValue> streamCodec =
+            ByteBufCodecs.VAR_INT.map(HolderValue::new, HolderValue::value);
+        ConfigHolder<HolderCodecConfig> holder = LiteConfig.holder(
+                HolderCodecConfig.class,
+                codecs -> codecs
+                    .registerCodec(HolderValue.class, codec)
+                    .registerStreamCodec(HolderValue.class, streamCodec))
+            .modId("mod")
+            .baseDir(tempDir)
+            .create();
+
+        holder.updateAndSave(config -> config.value = new HolderValue(4));
+
+        assertTrue(LiteConfig.codecs().find(HolderValue.class).isPresent());
+        assertTrue(LiteConfig.codecs().findStream(HolderValue.class).isPresent());
+        assertTrue(Files.readString(tempDir.resolve("holder-codec.json5")).contains("\"value\": 4"));
+    }
+
+    @Test
+    void testFallsBackToReflectionWhenACustomCodecRejectsAValue(@TempDir Path tempDir) {
+        Codec<FallbackValue> codec = Codec.INT.flatXmap(
+            value -> value >= 0
+                ? DataResult.success(new FallbackValue(value))
+                : DataResult.error(() -> "negative value"),
+            value -> value.value() >= 0
+                ? DataResult.success(value.value())
+                : DataResult.error(() -> "negative value"));
+        ConfigHolder<FallbackCodecConfig> holder = LiteConfig.holder(
+                FallbackCodecConfig.class,
+                codecs -> codecs.registerCodec(FallbackValue.class, codec))
+            .modId("mod")
+            .baseDir(tempDir)
+            .create();
+
+        holder.updateAndSave(config -> config.value = new FallbackValue(-4));
+        holder.update(config -> config.value = new FallbackValue(2));
+        holder.load();
+
+        assertEquals(new FallbackValue(-4), holder.data().value);
     }
 
     @Test
@@ -315,11 +360,25 @@ class ConfigCodecRegistryTest {
         public NetworkRange range = new NetworkRange(2, 6);
     }
 
+    @Config(name = "holder-codec")
+    public static class HolderCodecConfig {
+        public HolderValue value = new HolderValue(2);
+    }
+
+    @Config(name = "fallback-codec")
+    public static class FallbackCodecConfig {
+        public FallbackValue value = new FallbackValue(2);
+    }
+
     public record RgbColor(int red, int blue) {}
 
     public record IntRange(int minimum, int maximum) {}
 
     public record NetworkRange(int minimum, int maximum) {}
+
+    public record HolderValue(int value) {}
+
+    public record FallbackValue(int value) {}
 
     public record NetworkOnlyValue(int value) {}
 

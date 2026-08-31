@@ -303,30 +303,26 @@ public static final class Cloner implements StateCloner<MyModConfig> {
 }
 ```
 
-Register custom codecs before creating the first holder that uses the type. The `Codec` controls
-JSON5/TOML persistence and state copying; the `StreamCodec` controls synchronization. Lite Config's
-loader entrypoints handle the packets, handshake, batching, and server broadcasts.
+Register custom codecs while creating a holder. Registrations use the shared process-wide registry
+and are not bound to that holder or config. The `Codec` controls JSON5/TOML persistence and state
+copying; if it rejects a value, Lite Config falls back to reflective serialization for that use.
+The `StreamCodec` controls synchronization. Lite Config's loader entrypoints handle the packets,
+handshake, batching, and server broadcasts.
 
 ```java
 public final class MyMod implements ModInitializer {
 
-    public static ConfigHolder<MyModConfig> config;
+    public static ConfigHolder<MyModConfig> config = LiteConfig.holder(MyModConfig.class, codecs -> codecs
+            .registerCodec(IntRange.class, IntRange.CODEC)
+            .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC))
+        .modId("mymod")
+        .onLoad(ConfigSide.SERVER, state -> System.out.println("Loaded profile " + state.profileName))
+        .onUpdate(ConfigSide.BOTH, state -> System.out.println("HUD scale is now " + state.hudScale))
+        .onSave(ConfigSide.SERVER, state -> System.out.println("Saved MyMod config"))
+        .create();
 
     @Override
     public void onInitialize() {
-        // Codec registration
-        LiteConfig.codecs()
-            .registerCodec(IntRange.class, IntRange.CODEC)
-            .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
-
-        // Holder creation
-        config = LiteConfig.holder(MyModConfig.class)
-            .modId("mymod")
-            .onLoad(ConfigSide.SERVER, state -> System.out.println("Loaded profile " + state.profileName))
-            .onUpdate(ConfigSide.BOTH, state -> System.out.println("HUD scale is now " + state.hudScale))
-            .onSave(ConfigSide.SERVER, state -> System.out.println("Saved MyMod config"))
-            .create();
-
         // Fast shared read. Treat the returned object as read-only.
         int currentScale = config.data().hudScale;
 
