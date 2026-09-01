@@ -355,7 +355,7 @@ public final class MyMod implements ModInitializer {
 }
 ```
 
-The first `create()` loads `config/mymod/server.json5`, migrates older revisions in order, validates
+The first `create()` loads `config/mymoddir1/mymoddir2/mymodfile.json5`, migrates older revisions in order, validates
 the result, and writes the accepted state back. A file without `configVersion` starts at version 1.
 Only `hud_scale` and `spawnRange` are synchronized because they opt in with `sync = true`; the other
 values remain local. Use `@Config(sync = true)` instead when every persisted leaf is server-owned.
