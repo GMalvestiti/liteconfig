@@ -17,6 +17,7 @@ import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
 import com.gmalvestiti.minecraft.liteconfig.support.RegisteredConfigs;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,6 +42,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(ConfigRegistryIsolation.class)
 class ConfigSyncRegistryTest {
+
+    @BeforeEach
+    void initializeSync() {
+        ConfigSyncRegistry.initialize();
+    }
 
     private static String syncId(Class<?> type) {
         return "mod:" + type.getName();

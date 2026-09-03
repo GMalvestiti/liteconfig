@@ -36,6 +36,8 @@ public class NeoForgeEntrypoint {
 
         ConfigSyncRegistry.setBroadcastScheduler(NeoForgeEntrypoint::scheduleBroadcast);
         ConfigSyncRegistry.setManifestScheduler(NeoForgeEntrypoint::scheduleManifest);
+
+        ConfigSyncRegistry.initialize();
     }
 
     private static void onRegisterPayload(RegisterPayloadHandlersEvent event) {

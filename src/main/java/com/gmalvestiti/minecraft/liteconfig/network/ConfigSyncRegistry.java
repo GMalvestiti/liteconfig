@@ -7,6 +7,7 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
+import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 
 import java.util.ArrayList;
@@ -53,8 +54,18 @@ public final class ConfigSyncRegistry {
 
     private static int totalPendingBytes;
     private static int totalPendingEntries;
+    private static boolean initialized;
 
     private ConfigSyncRegistry() {}
+
+    public static synchronized void initialize() {
+        if (initialized) {
+            return;
+        }
+
+        ConfigRegistry.setLifecycleCallbacks(ConfigSyncRegistry::register, ConfigSyncRegistry::unregister);
+        initialized = true;
+    }
 
     public static synchronized void register(RegisteredConfig<?> config) {
         if (config.model().metadata().synced().isEmpty()) {

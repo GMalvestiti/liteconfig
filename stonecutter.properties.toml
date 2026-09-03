@@ -2,7 +2,7 @@
 mod.id="liteconfig"
 mod.name="LiteConfig"
 mod.group="com.gmalvestiti.minecraft"
-mod.version="1.0.0"
+mod.version="1.1.0"
 
 loomx.loom_version="1.17-SNAPSHOT"
 
@@ -21,7 +21,7 @@ mod.license="MIT"
 
 dev.debug=false
 dev.javadoc=true
-dev.snapshot=false
+dev.snapshot=true
 dev.username="Riser876"
 dev.uuid="13957e2e-2731-4479-8a6d-d42f89f8d756"
 dev.datagen=false

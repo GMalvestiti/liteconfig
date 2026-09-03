@@ -30,7 +30,8 @@ public record RegisteredConfig<T>(
     ConfigEventNotifier<T> notifier,
     ConfigExceptionHandler exceptionHandler,
     ConfigState<T> state,
-    ConfigTaskQueue tasks
+    ConfigTaskQueue tasks,
+    ConfigPathResolver pathResolver
 ) {
 
     public static <T> RegisteredConfig<T> create(
@@ -77,7 +78,8 @@ public record RegisteredConfig<T>(
                 new ConfigEventNotifier<>(model.scope()),
                 exceptionHandler,
                 new ConfigState<>(stateCloner, model.scope(), initialStateOf(model, engine, exceptionHandler, guard)),
-                ConfigExecutors.newSerialQueue());
+                ConfigExecutors.newSerialQueue(),
+                pathResolver);
 
             afterCreation.accept(created);
 

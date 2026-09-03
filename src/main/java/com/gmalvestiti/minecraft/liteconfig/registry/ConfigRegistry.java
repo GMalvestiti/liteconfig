@@ -2,13 +2,14 @@ package com.gmalvestiti.minecraft.liteconfig.registry;
 
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
-import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigFileOwnership;
-import com.gmalvestiti.minecraft.liteconfig.storage.ConfigPathResolver;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -21,7 +22,16 @@ public final class ConfigRegistry {
     private static final Map<Thread, Thread> REGISTRATION_WAITS = new ConcurrentHashMap<>();
     private static final ConfigFileOwnership OWNERSHIP = new ConfigFileOwnership();
 
+    private static final Object LIFECYCLE_LOCK = new Object();
+    private static final Consumer<RegisteredConfig<?>> NO_CALLBACK = ignored -> {};
+    private static volatile Consumer<RegisteredConfig<?>> registrationCallback = NO_CALLBACK;
+    private static volatile Consumer<RegisteredConfig<?>> releaseCallback = NO_CALLBACK;
+
     private ConfigRegistry() {}
+
+    public static <T> RegisteredConfig<T> register(ConfigSettings<T> settings) {
+        return register(settings, ignored -> {});
+    }
 
     @SuppressWarnings("unchecked")
     public static <T> RegisteredConfig<T> register(
@@ -33,20 +43,30 @@ public final class ConfigRegistry {
         RegistrationSlot existing = REGISTRATIONS.putIfAbsent(key, candidate);
 
         if (existing == null) {
+            RegisteredConfig<T> created = null;
             try {
-                RegisteredConfig<T> created = RegisteredConfig.create(settings, OWNERSHIP, afterRegistration);
-                candidate.complete(created);
+                created = RegisteredConfig.create(settings, OWNERSHIP, afterRegistration);
+
+                synchronized (LIFECYCLE_LOCK) {
+                    registrationCallback.accept(created);
+                    candidate.complete(created);
+                }
+
                 return created;
             } catch (RuntimeException | Error failure) {
                 candidate.fail(failure);
                 REGISTRATIONS.remove(key, candidate);
+
+                if (created != null) {
+                    created.pathResolver().releaseForConfig(created.model().type());
+                }
+
                 throw failure;
             }
         }
 
         if (existing.isOwnedBy(Thread.currentThread())) {
-            throw settings.scope().exception(
-                ConfigError.REENTRANT_CONFIG_REGISTRATION, settings.type().getName());
+            throw settings.scope().exception(ConfigError.REENTRANT_CONFIG_REGISTRATION, settings.type().getName());
         }
 
         RegisteredConfig<T> current = (RegisteredConfig<T>) await(settings, existing);
@@ -61,6 +81,44 @@ public final class ConfigRegistry {
         } catch (RuntimeException | Error failure) {
             release(key, existing, current);
             throw failure;
+        }
+    }
+
+    public static void setLifecycleCallbacks(
+        Consumer<RegisteredConfig<?>> onRegistration,
+        Consumer<RegisteredConfig<?>> onRelease
+    ) {
+        Objects.requireNonNull(onRegistration, "onRegistration");
+        Objects.requireNonNull(onRelease, "onRelease");
+
+        synchronized (LIFECYCLE_LOCK) {
+            List<RegisteredConfig<?>> registrations = new ArrayList<>();
+            for (RegistrationSlot slot : REGISTRATIONS.values()) {
+                RegisteredConfig<?> registration = slot.activeValue();
+                if (registration != null) {
+                    registrations.add(registration);
+                }
+            }
+
+            List<RegisteredConfig<?>> activated = new ArrayList<>();
+            try {
+                for (RegisteredConfig<?> registration : registrations) {
+                    onRegistration.accept(registration);
+                    activated.add(registration);
+                }
+            } catch (RuntimeException | Error failure) {
+                for (int index = activated.size() - 1; index >= 0; index--) {
+                    try {
+                        onRelease.accept(activated.get(index));
+                    } catch (RuntimeException | Error rollbackFailure) {
+                        failure.addSuppressed(rollbackFailure);
+                    }
+                }
+                throw failure;
+            }
+
+            registrationCallback = onRegistration;
+            releaseCallback = onRelease;
         }
     }
 
@@ -83,14 +141,15 @@ public final class ConfigRegistry {
         RegistrationSlot slot,
         RegisteredConfig<?> registration
     ) {
-        if (!slot.release()) {
-            return;
-        }
+        synchronized (LIFECYCLE_LOCK) {
+            if (!slot.release()) {
+                return;
+            }
 
-        if (REGISTRATIONS.remove(key, slot)) {
-            ConfigSyncRegistry.unregister(registration);
-            new ConfigPathResolver(key.baseDirectory(), registration.model().scope(), OWNERSHIP)
-                .releaseForConfig(registration.model().type());
+            if (REGISTRATIONS.remove(key, slot)) {
+                releaseCallback.accept(registration);
+                registration.pathResolver().releaseForConfig(registration.model().type());
+            }
         }
     }
 
@@ -205,6 +264,10 @@ public final class ConfigRegistry {
 
         private RegisteredConfig<?> value() {
             return result.getNow(null);
+        }
+
+        private synchronized RegisteredConfig<?> activeValue() {
+            return released || result.isCompletedExceptionally() ? null : value();
         }
 
         private RegisteredConfig<?> await() {

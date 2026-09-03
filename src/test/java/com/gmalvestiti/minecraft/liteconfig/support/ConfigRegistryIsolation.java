@@ -32,6 +32,9 @@ public final class ConfigRegistryIsolation implements BeforeEachCallback, AfterE
         clearStaticMap(ConfigRegistry.class, "REGISTRATIONS");
         Object ownership = staticField(ConfigRegistry.class, "OWNERSHIP").get(null);
         clearMap(staticField(ownership.getClass(), "owners").get(ownership));
+        Consumer<Object> noCallback = ignored -> {};
+        setStaticField(ConfigRegistry.class, "registrationCallback", noCallback);
+        setStaticField(ConfigRegistry.class, "releaseCallback", noCallback);
 
         clearStaticMap(ConfigSyncRegistry.class, "SYNCED");
         clearStaticMap(ConfigSyncRegistry.class, "SERVER_HASHES");
@@ -46,6 +49,7 @@ public final class ConfigRegistryIsolation implements BeforeEachCallback, AfterE
             (BooleanSupplier) () -> false);
         setStaticField(ConfigSyncRegistry.class, "totalPendingBytes", 0);
         setStaticField(ConfigSyncRegistry.class, "totalPendingEntries", 0);
+        setStaticField(ConfigSyncRegistry.class, "initialized", false);
         clearCollection(staticField(LiteConfig.codecs().getClass(), "plannedTypes")
             .get(LiteConfig.codecs()));
     }

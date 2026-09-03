@@ -6,7 +6,6 @@ import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.holder.ConfigHolderImplementation;
-import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.platform.Platform;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
@@ -280,7 +279,7 @@ public final class ConfigBuilder<T> {
     }
 
     private ConfigHolder<T> build() {
-        RegisteredConfig<T> registration = ConfigRegistry.register(settings(), ConfigSyncRegistry::register);
+        RegisteredConfig<T> registration = ConfigRegistry.register(settings());
         ConfigHolder<T> holder = new ConfigHolderImplementation<>(registration, readOnly);
         try {
             listenerRegistrations.forEach(register -> register.accept(holder));

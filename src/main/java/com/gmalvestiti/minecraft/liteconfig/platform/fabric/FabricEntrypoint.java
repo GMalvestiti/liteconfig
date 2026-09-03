@@ -84,6 +84,8 @@ public class FabricEntrypoint implements ModInitializer {
                 }
             });
         });
+
+        ConfigSyncRegistry.initialize();
     }
 }
 //?}
