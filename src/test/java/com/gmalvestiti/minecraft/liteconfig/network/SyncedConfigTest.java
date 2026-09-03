@@ -369,6 +369,7 @@ class SyncedConfigTest {
         RegisteredConfig<PartiallySyncedConfig> server =
             create(PartiallySyncedConfig.class, tempDir.resolve("server"));
 
+        ConfigSyncRegistry.initialize();
         Path clientDir = tempDir.resolve("client");
         ConfigHolder<PartiallySyncedConfig> client = LiteConfig.holder(PartiallySyncedConfig.class)
             .modId("mod")
