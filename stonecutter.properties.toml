@@ -34,7 +34,7 @@ publish.curseforge_slug="liteconfig"
 publish.curseforge_client=true
 publish.curseforge_server=true
 publish.auto_release=false
-publish.dry_run=true
+publish.dry_run=false
 
 
 ["1.21"]
