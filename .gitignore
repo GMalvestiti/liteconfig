@@ -40,6 +40,9 @@ replay_*.log
 *.hprof
 *.jfr
 
+# kotlin
+.kotlin
+
 # Compiled class file
 *.class
 
