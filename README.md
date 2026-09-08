@@ -38,9 +38,9 @@ Maven versions include the Lite Config version and the Minecraft build target:
 
 | Minecraft        | Lite Config     |
 |------------------|-----------------|
-| `1.21`-`1.21.10` | `1.0.0-1.21`    |
-| `1.21.11`        | `1.0.0-1.21.11` |
-| `26.1`-`latest`  | `1.0.0-26.1`    |
+| `1.21`-`1.21.10` | `1.2.0-1.21`    |
+| `1.21.11`        | `1.2.0-1.21.11` |
+| `26.1`-`latest`  | `1.2.0-26.1`    |
 
 The examples below target the `1.21` build.
 
@@ -53,7 +53,7 @@ repositories {
 }
 
 dependencies {
-    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.0.0-1.21'
+    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.2.0-1.21'
 }
 ```
 
@@ -62,7 +62,7 @@ Declare the dependency so the loader refuses to start without it:
 ```json
 {
   "depends": {
-    "liteconfig": ">=1.0.0-1.21"
+    "liteconfig": ">=1.2.0-1.21"
   }
 }
 ```
@@ -77,7 +77,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.0.0-1.21'
+    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.2.0-1.21'
 }
 ```
 
@@ -87,7 +87,7 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.0.0,)"
+versionRange = "[1.2.0,)"
 ordering = "NONE"
 side = "BOTH"
 ```
