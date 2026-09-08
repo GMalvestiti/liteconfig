@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Pattern;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
@@ -8,10 +9,13 @@ import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigConstraints;
 import java.lang.reflect.Field;
 import java.util.Collection;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.regex.PatternSyntaxException;
 
 final class DeclaredConstraints {
@@ -22,8 +26,9 @@ final class DeclaredConstraints {
         Range range = field.getAnnotation(Range.class);
         Length length = field.getAnnotation(Length.class);
         Pattern pattern = field.getAnnotation(Pattern.class);
+        AllowedValues allowedValues = field.getAnnotation(AllowedValues.class);
 
-        verify(field, range, length, pattern, problems);
+        verify(field, range, length, pattern, allowedValues, problems);
 
         return new ConfigConstraints(
             bound(range == null ? Double.NEGATIVE_INFINITY : range.min(), Double.NEGATIVE_INFINITY),
@@ -31,14 +36,21 @@ final class DeclaredConstraints {
             compile(pattern, problems),
             limit(length == null ? 0 : length.min(), 0),
             limit(length == null ? Integer.MAX_VALUE : length.max(), Integer.MAX_VALUE),
-            allowedValuesOf(field),
+            allowedValuesOf(field, allowedValues),
             range != null,
             pattern != null,
             length != null
         );
     }
 
-    private static void verify(Field field, Range range, Length length, Pattern pattern, List<String> problems) {
+    private static void verify(
+        Field field,
+        Range range,
+        Length length,
+        Pattern pattern,
+        AllowedValues allowedValues,
+        List<String> problems
+    ) {
 
         Class<?> type = field.getType();
 
@@ -72,6 +84,24 @@ final class DeclaredConstraints {
 
         if (pattern != null && type != String.class) {
             problems.add("@Pattern does not support " + type.getTypeName());
+        }
+
+        if (allowedValues != null) {
+            if (type != String.class) {
+                problems.add("@AllowedValues does not support " + type.getTypeName());
+            }
+
+            if (allowedValues.value().length == 0) {
+                problems.add("@AllowedValues must declare at least one value");
+            }
+
+            Set<String> unique = new HashSet<>();
+            for (String value : allowedValues.value()) {
+                if (!unique.add(value.toLowerCase(Locale.ROOT))) {
+                    problems.add("@AllowedValues values must be distinct ignoring case");
+                    break;
+                }
+            }
         }
     }
 
@@ -107,7 +137,11 @@ final class DeclaredConstraints {
         }
     }
 
-    private static List<String> allowedValuesOf(Field field) {
+    private static List<String> allowedValuesOf(Field field, AllowedValues declared) {
+        if (declared != null) {
+            return List.of(declared.value());
+        }
+
         if (!field.getType().isEnum()) {
             return List.of();
         }

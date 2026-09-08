@@ -187,6 +187,9 @@ public final class MyModConfig implements ConfigExtension {
     @Entry(comment = "Rendering backend. Applied after the next restart.", restart = true)
     public Renderer renderer = Renderer.DEFAULT;
 
+    @AllowedValues({"mysql", "sqlite"})
+    public String database = "sqlite";
+
     @Entry(comment = {"Profile used by server rules.", "Must be lowercase, alphanumeric, or underscore."})
     @Pattern("[a-z0-9_]+")
     @Length(max = 16)
@@ -323,6 +326,11 @@ public final class MyMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        // As an alternative to the holder's codec registration above
+        LiteConfig.codecs()
+            .registerCodec(IntRange.class, IntRange.CODEC)
+            .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
+        
         // Fast shared read. Treat the returned object as read-only.
         int currentScale = config.data().hudScale;
 
@@ -348,7 +356,7 @@ public final class MyMod implements ModInitializer {
         ).thenAccept(update ->
             System.out.println("Saved: " + update.accepted()));
 
-        // Structural metadata for screens, commands, or generated help.
+        // Structural metadata for screens, commands, generated help, etc.
         config.metadata().flatten().forEach(property ->
             System.out.println(property.path() + " -> " + property.type().getSimpleName()));
     }

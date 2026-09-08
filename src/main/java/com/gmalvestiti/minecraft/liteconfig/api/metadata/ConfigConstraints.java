@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  * @param minLength inclusive lower element count from {@link Length#min()}, empty when unbounded
  * @param maxLength inclusive upper element count from {@link Length#max()}, empty when unbounded
  * @param allowedValues the only accepted values, in declaration order; filled for enum fields and
- *                      empty for everything else
+ *                      string fields annotated with {@code @AllowedValues}, and empty otherwise
  * @param hasRange whether the field has a {@link Range} constraint, including an unbounded one
  * @param hasPattern whether the field has a {@code @Pattern} constraint
  * @param hasLength whether the field has a {@link Length} constraint, including an unbounded one

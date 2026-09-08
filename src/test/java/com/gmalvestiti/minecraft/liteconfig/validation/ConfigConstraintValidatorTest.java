@@ -2,6 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.validation;
 
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,19 @@ class ConfigConstraintValidatorTest {
         candidate.mode = null;
 
         assertEquals(List.of("value.mode"), idsOf(candidate));
+    }
+
+    @Test
+    void testAcceptsAllowedStringValuesWithoutCase() {
+        assertEquals(List.of(), validator.run(new DatabaseConfig("MySQL")));
+    }
+
+    @Test
+    void testReportsAStringOutsideTheAllowedValues() {
+        assertEquals(
+            List.of("value.database"),
+            validator.run(new DatabaseConfig("postgres")).stream().map(Violation::id).toList()
+        );
     }
 
     @Test
@@ -160,5 +174,14 @@ class ConfigConstraintValidatorTest {
     @Config(name = "nullable-enum")
     static class NullableEnumConfig {
         TestFixtures.Mode value;
+    }
+
+    static class DatabaseConfig {
+        @AllowedValues({"mysql", "sqlite"})
+        String database;
+
+        DatabaseConfig(String database) {
+            this.database = database;
+        }
     }
 }

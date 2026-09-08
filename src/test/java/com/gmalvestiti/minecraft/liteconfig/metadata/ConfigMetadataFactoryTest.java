@@ -3,6 +3,7 @@ package com.gmalvestiti.minecraft.liteconfig.metadata;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Pattern;
@@ -90,6 +91,13 @@ class ConfigMetadataFactoryTest {
         ConfigProperty property = propertyOf(TestFixtures.ConstrainedConfig.class, "mode");
 
         assertEquals(List.of("LOW", "MEDIUM", "HIGH"), property.constraints().allowedValues());
+    }
+
+    @Test
+    void testListsTheAllowedValuesOfAStringField() {
+        ConfigProperty property = propertyOf(DatabaseConfig.class, "database");
+
+        assertEquals(List.of("mysql", "sqlite"), property.constraints().allowedValues());
     }
 
     @Test
@@ -206,6 +214,20 @@ class ConfigMetadataFactoryTest {
     }
 
     @Test
+    void testRejectsInvalidAllowedValuesDeclarations() {
+        LiteConfigException typeFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(InvalidAllowedValuesTypeConfig.class));
+        LiteConfigException emptyFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(EmptyAllowedValuesConfig.class));
+        LiteConfigException duplicateFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(DuplicateAllowedValuesConfig.class));
+
+        assertEquals(ConfigError.INVALID_CONSTRAINT, typeFailure.error());
+        assertEquals(ConfigError.INVALID_CONSTRAINT, emptyFailure.error());
+        assertEquals(ConfigError.INVALID_CONSTRAINT, duplicateFailure.error());
+    }
+
+    @Test
     void testRejectsNaNRangeBounds() {
         LiteConfigException failure = assertThrows(
             LiteConfigException.class, () -> metadataOf(NaNRangeConfig.class));
@@ -271,6 +293,30 @@ class ConfigMetadataFactoryTest {
     static class InvalidLengthTypeConfig {
         @Length
         int value;
+    }
+
+    @Config(name = "invalid-allowed-values-type")
+    static class InvalidAllowedValuesTypeConfig {
+        @AllowedValues("one")
+        int value;
+    }
+
+    @Config(name = "empty-allowed-values")
+    static class EmptyAllowedValuesConfig {
+        @AllowedValues({})
+        String value;
+    }
+
+    @Config(name = "duplicate-allowed-values")
+    static class DuplicateAllowedValuesConfig {
+        @AllowedValues({"mysql", "MYSQL"})
+        String value;
+    }
+
+    @Config(name = "database")
+    static class DatabaseConfig {
+        @AllowedValues({"mysql", "sqlite"})
+        String database = "sqlite";
     }
 
     @Config(name = "nan-range")

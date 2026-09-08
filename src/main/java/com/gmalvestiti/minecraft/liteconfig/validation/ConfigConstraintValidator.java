@@ -114,6 +114,8 @@ public final class ConfigConstraintValidator {
         if (constraints.hasLength()) {
             checkLength(constraints, value, path, violations);
         }
+
+        checkAllowedValues(constraints, value, path, violations);
     }
 
     private void checkRange(ConfigConstraints constraints, Object value, String path, List<Violation> violations) {
@@ -169,6 +171,24 @@ public final class ConfigConstraintValidator {
         OptionalInt max = constraints.maxLength();
         if (max.isPresent() && length > max.getAsInt()) {
             violations.add(Violation.of("length." + path, "%s must hold at most %d, held %d".formatted(path, max.getAsInt(), length)));
+        }
+    }
+
+    private void checkAllowedValues(ConfigConstraints constraints, Object value, String path, List<Violation> violations) {
+        if (!(value instanceof String text) || constraints.allowedValues().isEmpty()) {
+            return;
+        }
+
+        boolean allowed = constraints.allowedValues().stream().anyMatch(allowedValue -> allowedValue.equalsIgnoreCase(text));
+        if (!allowed) {
+            violations.add(Violation.of(
+                "value." + path,
+                "%s must be one of %s, was '%s'".formatted(
+                    path,
+                    String.join(", ", constraints.allowedValues()),
+                    text
+                )
+            ));
         }
     }
 
