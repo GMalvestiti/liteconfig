@@ -1,26 +1,23 @@
 # Lite Config
 
-Lite Config is a JSON5/TOML config library for Minecraft mods on Fabric and NeoForge. You just need to annotate a
- Java class with `@Config`, hand it to a builder, and get back a `ConfigHolder` that handles
-file path resolution, read/write operations, corrupt-file recovery, copies, validation, and 
-lifecycle events.
+Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric and NeoForge. Annotate any Java class with @Config and pass it to a builder to get a ConfigHolder that automatically manages file resolution, safe I/O, lifecycle events, sync, and more.
 
-**What Lite Config does:**
-* **Configuration data layer:** Lite Config handles config files, including paths, loading, saving, default values, corruption recovery, atomic writes, and JSON5/TOML formats.
-* **Safe state management:** provides validated snapshots, copies, runtime updates, and custom state cloning.
-* **Async and read-only configs:** choose synchronous, asynchronous, or read-only holders depending on your threading and lifecycle needs.
-* **Restart guards:** block local runtime updates and defer synchronized changes of restart-aware fields.
-* **Custom update API:** `update` and `updateAndSave` return an `UpdateResult` with acceptance status and validation violations.
-* **Fine-grained failure policies:** independently control how read, write, and update failures are handled, from graceful fallback to strict exceptions.
-* **Lifecycle and event listeners:** hook into config load, save, and update events, or use config-level hooks for normalization and validation.
-* **Declared constraints:** bound numbers, strings, and collections with annotations enforced on load and update and exposed through metadata.
-* **Config metadata:** query every field's path, type, default, comment, translation key, and constraints at runtime.
-* **Opt-in sync:** mark a config or individual field as synced and Lite Config automatically keeps those values synchronized from server to client.
-* **Versioning and migrations:** stamp a revision into the file and upgrade older ones step by step instead of losing the player's values.
-* **Customizable entries:** control file paths, field names, comments, ignored fields, and other persistence details.
+**Features:**
+* **Data layer:** Handles JSON5/TOML formats, paths, default values, atomic writes, and automatic corruption recovery.
+* **State Management:** Provides validated snapshots, deep copies, runtime updates, and custom state cloning.
+* **Opt-In Network Sync** Automatically synchronizes marked configs or individual fields from server to client.
+* **Async and Read-only:** Offers synchronous, asynchronous, or read-only options to match your threading model.
+* **Restart Guards:** Blocks runtime updates and defers synchronized changes for fields requiring a game restart.
+* **Custom Update API:** `update` and `updateAndSave` return an `UpdateResult` with acceptance status and validation violations.
+* **Failure Policies:** Granular control over read, write, and update errors, from graceful fallbacks to strict exceptions.
+* **Lifecycle Hooks:** Event listeners for load, save, and update phases, plus config-level normalization and validation hooks.
+* **Declared constraints:** Enforces numeric bounds, string patterns, and collection sizes, and more via annotations on load/update.
+* **Runtime Metadata:** Access every field's path, type, default, comment, translation key, and constraints at runtime.
+* **Version Migrations:** Uses stamped file revisions to upgrade older configs step-by-step without losing player data.
+* **Persistence Control:** Fully customize file paths, field names, automated comments, and ignored fields.
 
-**Outside Lite Config's scope:**
-* **Config screen:** Lite Config is a data layer and it does not render UI by itself.
+**Outside Lite Config's Scope:**
+* **Config Screen:** Lite Config is a data-layer solution and doesn't render config screens by itself, allowing you to pair it with any UI library or custom screens.
 
 **Documentation:** [Wiki](https://github.com/GMalvestiti/liteconfig/wiki)
 
