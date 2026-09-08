@@ -5,7 +5,7 @@ Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric a
 **Features:**
 * **Data layer:** Handles JSON5/TOML formats, paths, default values, atomic writes, and automatic corruption recovery.
 * **State Management:** Provides validated snapshots, deep copies, runtime updates, and custom state cloning.
-* **Opt-In Network Sync** Automatically synchronizes marked configs or individual fields from server to client.
+* **Opt-In Network Sync:** Automatically synchronizes marked configs or individual fields from server to client.
 * **Async and Read-only:** Offers synchronous, asynchronous, or read-only options to match your threading model.
 * **Restart Guards:** Blocks runtime updates and defers synchronized changes for fields requiring a game restart.
 * **Custom Update API:** `update` and `updateAndSave` return an `UpdateResult` with acceptance status and validation violations.
