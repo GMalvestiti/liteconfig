@@ -9,13 +9,14 @@ import java.lang.annotation.Target;
 /**
  * Restricts a string field to a fixed, case-insensitive set of values.
  *
- * <pre>{@code
- * @Config(name = "mymod")
+ * <pre>
+ * {@code @Config(name = "mymod")}
  * public final class MyModConfig {
  *
- *     @AllowedValues({"mysql", "sqlite"})
+ *     {@code @AllowedValues({"mysql", "sqlite"})}
  *     public String database = "sqlite";
- * }</pre>
+ * }
+ * </pre>
  *
  * <p>Violations are reported under the id {@code value.<path>}, using the property's dotted
  * persisted path.
