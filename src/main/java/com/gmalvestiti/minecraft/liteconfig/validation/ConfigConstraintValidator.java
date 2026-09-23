@@ -99,8 +99,13 @@ public final class ConfigConstraintValidator {
         }
 
         if (value == null) {
+            checkNullability(constraints, path, violations);
             checkMissingChoice(property, path, violations);
             return;
+        }
+
+        if (constraints.hasNotBlank() && value instanceof String text && text.isBlank()) {
+            violations.add(Violation.of("notblank." + path, "%s must not be blank".formatted(path)));
         }
 
         if (constraints.hasRange()) {
@@ -116,6 +121,16 @@ public final class ConfigConstraintValidator {
         }
 
         checkAllowedValues(constraints, value, path, violations);
+    }
+
+    private void checkNullability(ConfigConstraints constraints, String path, List<Violation> violations) {
+        if (constraints.hasNotNull()) {
+            violations.add(Violation.of("notnull." + path, "%s must not be null".formatted(path)));
+        }
+
+        if (constraints.hasNotBlank()) {
+            violations.add(Violation.of("notblank." + path, "%s must not be blank".formatted(path)));
+        }
     }
 
     private void checkRange(ConfigConstraints constraints, Object value, String path, List<Violation> violations) {

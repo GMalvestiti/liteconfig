@@ -187,11 +187,13 @@ public final class MyModConfig implements ConfigExtension {
     @AllowedValues({"mysql", "sqlite"})
     public String database = "sqlite";
 
-    @Entry(comment = {"Profile used by server rules.", "Must be lowercase, alphanumeric, or underscore."})
-    @Pattern("[a-z0-9_]+")
+    @NotBlank
     @Length(max = 16)
+    @Pattern("[a-z0-9_]+")
+    @Entry(comment = {"Profile used by server rules.", "Must be lowercase, alphanumeric, or underscore."})
     public String profileName = "default";
 
+    @NotNull
     @Entry(comment = "Server-owned spawn range.", sync = true)
     public IntRange spawnRange = new IntRange(1, 12);
 

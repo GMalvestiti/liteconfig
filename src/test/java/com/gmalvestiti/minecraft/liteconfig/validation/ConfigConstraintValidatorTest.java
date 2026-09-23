@@ -3,6 +3,8 @@ package com.gmalvestiti.minecraft.liteconfig.validation;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import org.junit.jupiter.api.Test;
@@ -162,6 +164,26 @@ class ConfigConstraintValidatorTest {
         assertEquals(List.of(), guard.violationsOf(new NullableEnumConfig()));
     }
 
+    @Test
+    void testReportsANullRequiredValue() {
+        assertEquals(
+            List.of("notnull.value"),
+            validator.run(new NotNullConfig()).stream().map(Violation::id).toList()
+        );
+    }
+
+    @Test
+    void testReportsNullEmptyAndWhitespaceOnlyBlankValues() {
+        assertEquals(List.of("notblank.value"), blankViolationIds(null));
+        assertEquals(List.of("notblank.value"), blankViolationIds(""));
+        assertEquals(List.of("notblank.value"), blankViolationIds("  \t"));
+    }
+
+    @Test
+    void testAcceptsTextWithANonWhitespaceCharacter() {
+        assertEquals(List.of(), blankViolationIds(" profile "));
+    }
+
     private List<String> idsOf(TestFixtures.ConstrainedConfig candidate) {
         return validator.run(candidate).stream().map(Violation::id).toList();
     }
@@ -183,5 +205,23 @@ class ConfigConstraintValidatorTest {
         DatabaseConfig(String database) {
             this.database = database;
         }
+    }
+
+    static class NotNullConfig {
+        @NotNull
+        String value;
+    }
+
+    static class NotBlankConfig {
+        @NotBlank
+        String value;
+
+        NotBlankConfig(String value) {
+            this.value = value;
+        }
+    }
+
+    private List<String> blankViolationIds(String value) {
+        return validator.run(new NotBlankConfig(value)).stream().map(Violation::id).toList();
     }
 }

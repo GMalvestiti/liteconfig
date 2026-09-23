@@ -2,6 +2,8 @@ package com.gmalvestiti.minecraft.liteconfig.metadata;
 
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Pattern;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigConstraints;
@@ -27,8 +29,10 @@ final class DeclaredConstraints {
         Length length = field.getAnnotation(Length.class);
         Pattern pattern = field.getAnnotation(Pattern.class);
         AllowedValues allowedValues = field.getAnnotation(AllowedValues.class);
+        NotNull notNull = field.getAnnotation(NotNull.class);
+        NotBlank notBlank = field.getAnnotation(NotBlank.class);
 
-        verify(field, range, length, pattern, allowedValues, problems);
+        verify(field, range, length, pattern, allowedValues, notNull, notBlank, problems);
 
         return new ConfigConstraints(
             bound(range == null ? Double.NEGATIVE_INFINITY : range.min(), Double.NEGATIVE_INFINITY),
@@ -39,7 +43,9 @@ final class DeclaredConstraints {
             allowedValuesOf(field, allowedValues),
             range != null,
             pattern != null,
-            length != null
+            length != null,
+            notNull != null,
+            notBlank != null
         );
     }
 
@@ -49,6 +55,8 @@ final class DeclaredConstraints {
         Length length,
         Pattern pattern,
         AllowedValues allowedValues,
+        NotNull notNull,
+        NotBlank notBlank,
         List<String> problems
     ) {
 
@@ -102,6 +110,14 @@ final class DeclaredConstraints {
                     break;
                 }
             }
+        }
+
+        if (notNull != null && type.isPrimitive()) {
+            problems.add("@NotNull does not support primitive " + type.getTypeName());
+        }
+
+        if (notBlank != null && type != String.class) {
+            problems.add("@NotBlank does not support " + type.getTypeName());
         }
     }
 

@@ -6,6 +6,8 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Pattern;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
@@ -84,6 +86,16 @@ class ConfigMetadataFactoryTest {
         assertTrue(property.constraints().hasLength());
         assertEquals("[a-z]+", property.constraints().pattern().orElseThrow().pattern());
         assertEquals(12, property.constraints().maxLength().getAsInt());
+    }
+
+    @Test
+    void testPublishesNullabilityConstraints() {
+        ConfigProperty required = propertyOf(NullabilityConfig.class, "required");
+        ConfigProperty text = propertyOf(NullabilityConfig.class, "text");
+
+        assertTrue(required.constraints().hasNotNull());
+        assertFalse(required.constraints().hasNotBlank());
+        assertTrue(text.constraints().hasNotBlank());
     }
 
     @Test
@@ -228,6 +240,17 @@ class ConfigMetadataFactoryTest {
     }
 
     @Test
+    void testRejectsNullabilityConstraintsAppliedToUnsupportedTypes() {
+        LiteConfigException notNullFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(InvalidNotNullTypeConfig.class));
+        LiteConfigException notBlankFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(InvalidNotBlankTypeConfig.class));
+
+        assertEquals(ConfigError.INVALID_CONSTRAINT, notNullFailure.error());
+        assertEquals(ConfigError.INVALID_CONSTRAINT, notBlankFailure.error());
+    }
+
+    @Test
     void testRejectsNaNRangeBounds() {
         LiteConfigException failure = assertThrows(
             LiteConfigException.class, () -> metadataOf(NaNRangeConfig.class));
@@ -323,6 +346,27 @@ class ConfigMetadataFactoryTest {
     static class NaNRangeConfig {
         @Range(min = Double.NaN)
         double value;
+    }
+
+    @Config(name = "nullability")
+    static class NullabilityConfig {
+        @NotNull
+        Object required = new Object();
+
+        @NotBlank
+        String text = "value";
+    }
+
+    @Config(name = "invalid-not-null-type")
+    static class InvalidNotNullTypeConfig {
+        @NotNull
+        int value;
+    }
+
+    @Config(name = "invalid-not-blank-type")
+    static class InvalidNotBlankTypeConfig {
+        @NotBlank
+        Object value;
     }
 
     @Config(name = "root-customized-default")

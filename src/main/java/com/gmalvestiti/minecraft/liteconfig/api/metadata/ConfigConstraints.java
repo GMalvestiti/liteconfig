@@ -1,6 +1,8 @@
 package com.gmalvestiti.minecraft.liteconfig.api.metadata;
 
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 
 import java.util.List;
@@ -37,6 +39,8 @@ import java.util.regex.Pattern;
  * @param hasRange whether the field has a {@link Range} constraint, including an unbounded one
  * @param hasPattern whether the field has a {@code @Pattern} constraint
  * @param hasLength whether the field has a {@link Length} constraint, including an unbounded one
+ * @param hasNotNull whether the field has a {@link NotNull} constraint
+ * @param hasNotBlank whether the field has a {@link NotBlank} constraint
  */
 public record ConfigConstraints(
     OptionalDouble min,
@@ -47,7 +51,9 @@ public record ConfigConstraints(
     List<String> allowedValues,
     boolean hasRange,
     boolean hasPattern,
-    boolean hasLength
+    boolean hasLength,
+    boolean hasNotNull,
+    boolean hasNotBlank
 ) {
 
     public ConfigConstraints {
@@ -66,6 +72,8 @@ public record ConfigConstraints(
         return !hasRange
             && !hasPattern
             && !hasLength
+            && !hasNotNull
+            && !hasNotBlank
             && allowedValues.isEmpty();
     }
 }

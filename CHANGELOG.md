@@ -1,3 +1,7 @@
+# 1.3.0
+
+- Added NotNull and NotBlank constraints
+
 # 1.2.0
 
 - Added the AllowedValues constraint
