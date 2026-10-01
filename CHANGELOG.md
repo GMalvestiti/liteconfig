@@ -1,6 +1,7 @@
 # 1.3.0
 
 - Added NotNull and NotBlank constraints
+- Sync registry refactor.
 
 # 1.2.0
 

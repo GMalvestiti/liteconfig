@@ -9,6 +9,7 @@ import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
+import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import com.gmalvestiti.minecraft.liteconfig.support.RegisteredConfigs;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
@@ -58,7 +59,7 @@ class SyncedConfigTest {
         candidate.section.strict = !candidate.section.strict;
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(9, target.state().published().maxTeamSize);
         assertEquals(candidate.strictMode, target.state().published().strictMode);
@@ -67,8 +68,10 @@ class SyncedConfigTest {
 
     @Test
     void testCarriesEveryLeafTypeItSupports(@TempDir Path tempDir) {
-        RegisteredConfig<WireTypesConfig> source = create(WireTypesConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<WireTypesConfig> target = create(WireTypesConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<WireTypesConfig> source =
+            create(WireTypesConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<WireTypesConfig> target =
+            create(WireTypesConfig.class, tempDir.resolve("target"));
 
         WireTypesConfig candidate = source.state().copyOfCanonical();
         candidate.flag = false;
@@ -83,7 +86,7 @@ class SyncedConfigTest {
         candidate.mood = Mood.CALM;
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         WireTypesConfig published = target.state().published();
         assertEquals(false, published.flag);
@@ -100,14 +103,16 @@ class SyncedConfigTest {
 
     @Test
     void testCarriesNullThroughAReferenceValue(@TempDir Path tempDir) {
-        RegisteredConfig<WireTypesConfig> source = create(WireTypesConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<WireTypesConfig> target = create(WireTypesConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<WireTypesConfig> source =
+            create(WireTypesConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<WireTypesConfig> target =
+            create(WireTypesConfig.class, tempDir.resolve("target"));
 
         WireTypesConfig candidate = source.state().copyOfCanonical();
         candidate.label = null;
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertNull(target.state().published().label);
     }
@@ -115,14 +120,17 @@ class SyncedConfigTest {
     @Test
     void testCarriesARegisteredCustomValue(@TempDir Path tempDir) {
         registerCustomWireCodec();
-        RegisteredConfig<CustomWireConfig> source = create(CustomWireConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CustomWireConfig> target = create(CustomWireConfig.class, tempDir.resolve("target"));
+
+        RegisteredConfig<CustomWireConfig> source =
+            create(CustomWireConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<CustomWireConfig> target =
+            create(CustomWireConfig.class, tempDir.resolve("target"));
 
         CustomWireConfig candidate = source.state().copyOfCanonical();
         candidate.color = new RgbColor(7, 8);
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(new RgbColor(7, 8), target.state().published().color);
     }
@@ -134,14 +142,17 @@ class SyncedConfigTest {
                 .registerCodec(IntRange.class, IntRange.CODEC)
                 .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
         }
-        RegisteredConfig<VanillaCodecConfig> source = create(VanillaCodecConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<VanillaCodecConfig> target = create(VanillaCodecConfig.class, tempDir.resolve("target"));
+
+        RegisteredConfig<VanillaCodecConfig> source =
+            create(VanillaCodecConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<VanillaCodecConfig> target =
+            create(VanillaCodecConfig.class, tempDir.resolve("target"));
 
         VanillaCodecConfig candidate = source.state().copyOfCanonical();
         candidate.range = new IntRange(4, 20);
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(new IntRange(4, 20), target.state().published().range);
     }
@@ -149,6 +160,7 @@ class SyncedConfigTest {
     @Test
     void testCarriesListsMapsAndNestedCustomValues(@TempDir Path tempDir) {
         registerCustomWireCodec();
+
         RegisteredConfig<CollectionWireConfig> source =
             create(CollectionWireConfig.class, tempDir.resolve("source"));
         RegisteredConfig<CollectionWireConfig> target =
@@ -164,7 +176,7 @@ class SyncedConfigTest {
         candidate.tags = Set.of("server", "required");
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         CollectionWireConfig published = target.state().published();
         assertEquals(List.of("one", "two"), published.labels);
@@ -180,15 +192,16 @@ class SyncedConfigTest {
     void testCanonicalizesSetOrderOnTheWire(@TempDir Path tempDir) {
         RegisteredConfig<CollectionWireConfig> config =
             create(CollectionWireConfig.class, tempDir);
+
         CollectionWireConfig first = config.state().copyOfCanonical();
         first.tags = new LinkedHashSet<>(List.of("first", "second"));
         config.state().replace(first);
-        ConfigBytes firstPayload = SyncedConfig.of(config).snapshot().data();
+        ConfigBytes firstPayload = SyncedConfig.of(config).cachedSnapshot().data();
 
         CollectionWireConfig second = config.state().copyOfCanonical();
         second.tags = new LinkedHashSet<>(List.of("second", "first"));
         config.state().replace(second);
-        ConfigBytes secondPayload = SyncedConfig.of(config).snapshot().data();
+        ConfigBytes secondPayload = SyncedConfig.of(config).cachedSnapshot().data();
 
         assertEquals(firstPayload, secondPayload);
     }
@@ -199,11 +212,12 @@ class SyncedConfigTest {
             create(CollectionWireConfig.class, tempDir.resolve("source"));
         RegisteredConfig<CollectionWireConfig> target =
             create(CollectionWireConfig.class, tempDir.resolve("target"));
+
         CollectionWireConfig candidate = source.state().copyOfCanonical();
         candidate.labels = Collections.nCopies(1025, "value");
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(candidate.labels, target.state().published().labels);
     }
@@ -211,6 +225,7 @@ class SyncedConfigTest {
     @Test
     void testInvokesCallbacksAndListenersOnlyForChangedSyncValues(@TempDir Path tempDir) {
         CallbackSyncedConfig.EVENTS.clear();
+
         RegisteredConfig<CallbackSyncedConfig> source =
             create(CallbackSyncedConfig.class, tempDir.resolve("source"));
         RegisteredConfig<CallbackSyncedConfig> target =
@@ -220,27 +235,33 @@ class SyncedConfigTest {
         CallbackSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 6;
         source.state().replace(candidate);
-        ConfigBytes payload = SyncedConfig.of(source).snapshot().data();
+
+        ConfigBytes payload = SyncedConfig.of(source).cachedSnapshot().data();
         target.notifier().addUpdateListener(state -> updates[0]++);
 
-        SyncedConfig.of(target).apply(payload);
-        SyncedConfig.of(target).apply(payload);
+        apply(SyncedConfig.of(target), payload);
+        apply(SyncedConfig.of(target), payload);
 
         assertEquals(List.of(new SyncCallbackEvent(1, 6, true)), CallbackSyncedConfig.EVENTS);
         assertEquals(1, updates[0]);
     }
 
     @Test
-    void testPersistsAndDispatchesCallbacksOnTheConfigWorker(
+    void testPersistsAndDispatchesCallbacksOnClientThread(
         @TempDir Path tempDir
     ) throws Exception {
         CallbackSyncedConfig.EVENTS.clear();
         CallbackSyncedConfig.THREADS.clear();
+
         RegisteredConfig<CallbackSyncedConfig> source =
             create(CallbackSyncedConfig.class, tempDir.resolve("source"));
+
+        ConfigSyncRegistry.initialize();
+
         RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
-        ConfigSyncRegistry.register(target);
+            ConfigRegistry.register(new ConfigSettings<>(
+                CallbackSyncedConfig.class, new ConfigScope("mod"), tempDir.resolve("target")));
+
         CallbackSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 8;
         source.state().replace(candidate);
@@ -248,18 +269,82 @@ class SyncedConfigTest {
         ExecutorService clientThread = Executors.newSingleThreadExecutor(
             task -> new Thread(task, "test-client-main"));
         try {
-            ConfigSyncRegistry.setClientMainThreadExecutor(clientThread);
-            ConfigSyncRegistry.receiveResultAsync(new ConfigSyncS2CPacket(
-                true, Map.of(
-                    target.model().syncId(), SyncedConfig.of(source).snapshot().data()))).join();
+            ConfigRegistryIsolation.beforeGameStartup();
+            ClientConfigSync.setClientMainThreadExecutor(clientThread);
+            ClientSyncResult result = ClientConfigSync.receivePayload(
+                new ConfigSyncS2CPacket(
+                    true,
+                    Map.of(
+                        target.model().syncId(),
+                        SyncedConfig.of(source).cachedSnapshot().data()
+                    )
+                )
+            ).join();
+            assertTrue(result.completed());
+            assertNull(result.disconnectReason());
             clientThread.submit(() -> {}).get();
         } finally {
             clientThread.shutdownNow();
         }
 
-        assertTrue(CallbackSyncedConfig.THREADS.getFirst().startsWith("liteconfig-io"));
+        assertEquals(List.of("test-client-main"), CallbackSyncedConfig.THREADS);
         assertTrue(Files.readString(tempDir.resolve("target").resolve("callback-sync.json5"))
             .contains("\"shared\": 8"));
+    }
+
+    @Test
+    void testConnectionResetDoesNotCancelQueuedCallbacks(@TempDir Path tempDir) {
+        CallbackSyncedConfig.EVENTS.clear();
+
+        RegisteredConfig<CallbackSyncedConfig> source =
+            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<CallbackSyncedConfig> target =
+            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+
+        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        candidate.shared = 7;
+        source.state().replace(candidate);
+
+        List<Runnable> actions = new ArrayList<>();
+        ClientConfigSync.setClientMainThreadExecutor(actions::add);
+        AtomicInteger notifications = new AtomicInteger();
+        target.notifier().addUpdateListener(ignored -> notifications.incrementAndGet());
+
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+        assertEquals(1, actions.size());
+
+        ClientConfigSync.resetClientConnection();
+        actions.forEach(Runnable::run);
+
+        assertEquals(List.of(new SyncCallbackEvent(1, 7, true)), CallbackSyncedConfig.EVENTS);
+        assertEquals(1, notifications.get());
+    }
+
+    @Test
+    void testSyncUpdatesSkipLocalBroadcastListeners(@TempDir Path tempDir) {
+        RegisteredConfig<CallbackSyncedConfig> source =
+            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<CallbackSyncedConfig> target =
+            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+
+        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        candidate.shared = 7;
+        source.state().replace(candidate);
+
+        AtomicInteger localUpdates = new AtomicInteger();
+        AtomicInteger allUpdates = new AtomicInteger();
+        target.notifier().addLocalUpdateListener(
+            ignored -> localUpdates.incrementAndGet(),
+            Runnable::run);
+        target.notifier().addUpdateListener(ignored -> allUpdates.incrementAndGet());
+
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+
+        assertEquals(0, localUpdates.get());
+        assertEquals(1, allUpdates.get());
+        target.notifier().notifyUpdated(target.state().published());
+        assertEquals(1, localUpdates.get());
+        assertEquals(2, allUpdates.get());
     }
 
     @Test
@@ -274,12 +359,14 @@ class SyncedConfigTest {
         CallbackSyncedConfig second = source.state().copyOfCanonical();
         second.shared = 2;
         source.state().replace(second);
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         CallbackSyncedConfig third = source.state().copyOfCanonical();
         third.shared = 3;
         source.state().replace(third);
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(List.of(2, 3), published);
     }
@@ -291,11 +378,13 @@ class SyncedConfigTest {
         CallbackSyncedConfig.MAX_ACTIVE.set(0);
         RegisteredConfig<CallbackSyncedConfig> config =
             create(CallbackSyncedConfig.class, tempDir);
+
         CallbackSyncedConfig first = new CallbackSyncedConfig();
         CallbackSyncedConfig second = new CallbackSyncedConfig();
         CallbackSyncedConfig third = new CallbackSyncedConfig();
         second.shared = 2;
         third.shared = 3;
+
         Runnable firstDrain = config.model().callbacks().enqueueChanged(first, second, false);
         Runnable secondDrain = config.model().callbacks().enqueueChanged(second, third, false);
 
@@ -311,15 +400,22 @@ class SyncedConfigTest {
 
     @Test
     void testRefusesAPayloadThatBreaksTheReceivingRules(@TempDir Path tempDir) {
-        RegisteredConfig<WireTypesConfig> source = create(WireTypesConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<WireTypesConfig> target = create(WireTypesConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<WireTypesConfig> source =
+            create(WireTypesConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<WireTypesConfig> target =
+            create(WireTypesConfig.class, tempDir.resolve("target"));
 
         WireTypesConfig candidate = source.state().copyOfCanonical();
         candidate.mood = null;
         source.state().replace(candidate);
-        ConfigBytes payload = SyncedConfig.of(source).snapshot().data();
+        ConfigBytes payload = SyncedConfig.of(source).cachedSnapshot().data();
 
-        assertThrows(LiteConfigException.class, () -> SyncedConfig.of(target).apply(payload));
+        assertThrows(
+            LiteConfigException.class,
+            () -> SyncedConfig.of(target).prepare(payload));
+        assertEquals(
+            ClientConfigSync.SYNC_FAILED,
+            receive(SyncedConfig.of(target), payload).disconnectReason());
         assertEquals(Mood.BRIGHT, target.state().published().mood);
     }
 
@@ -335,7 +431,7 @@ class SyncedConfigTest {
         candidate.private_ = "server only";
         source.state().replace(candidate);
 
-        SyncedConfig.of(target).apply(SyncedConfig.of(source).snapshot().data());
+        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
         assertEquals(99, target.state().published().shared);
         assertEquals("local", target.state().published().private_);
@@ -343,25 +439,32 @@ class SyncedConfigTest {
 
     @Test
     void testCarriesNoValuesForAConfigThatKeepsToItself(@TempDir Path tempDir) {
-        RegisteredConfig<TestFixtures.SimpleConfig> config = create(TestFixtures.SimpleConfig.class, tempDir);
+        RegisteredConfig<TestFixtures.SimpleConfig> config =
+            create(TestFixtures.SimpleConfig.class, tempDir);
         SyncedConfig<TestFixtures.SimpleConfig> synced = SyncedConfig.of(config);
 
         String before = config.state().published().text;
-        synced.apply(synced.snapshot().data());
+        apply(synced, synced.cachedSnapshot().data());
 
         assertEquals(before, config.state().published().text);
     }
 
     @Test
     void testRejectsTrailingPayloadBytes(@TempDir Path tempDir) {
-        RegisteredConfig<TestFixtures.SyncedConfig> config = create(TestFixtures.SyncedConfig.class, tempDir);
+        RegisteredConfig<TestFixtures.SyncedConfig> config =
+            create(TestFixtures.SyncedConfig.class, tempDir);
         SyncedConfig<TestFixtures.SyncedConfig> synced = SyncedConfig.of(config);
 
-        byte[] encoded = synced.snapshot().data().bytes();
+        byte[] encoded = synced.cachedSnapshot().data().bytes();
         byte[] padded = new byte[encoded.length + 1];
         System.arraycopy(encoded, 0, padded, 0, encoded.length);
 
-        assertThrows(LiteConfigException.class, () -> synced.apply(ConfigBytes.of(padded)));
+        assertThrows(
+            LiteConfigException.class,
+            () -> synced.prepare(ConfigBytes.of(padded)));
+        assertEquals(
+            ClientConfigSync.SYNC_FAILED,
+            receive(synced, ConfigBytes.of(padded)).disconnectReason());
     }
 
     @Test
@@ -371,6 +474,7 @@ class SyncedConfigTest {
 
         ConfigSyncRegistry.initialize();
         Path clientDir = tempDir.resolve("client");
+
         ConfigHolder<PartiallySyncedConfig> client = LiteConfig.holder(PartiallySyncedConfig.class)
             .modId("mod")
             .baseDir(clientDir.toString())
@@ -383,8 +487,18 @@ class SyncedConfigTest {
         fromServer.shared = localShared + 7;
         server.state().replace(fromServer);
 
-        ConfigSyncRegistry.apply(
-            server.model().syncId(), SyncedConfig.of(server).snapshot().data());
+        ClientSyncResult result = ClientConfigSync.receivePayload(
+            new ConfigSyncS2CPacket(
+                true,
+                Map.of(
+                    server.model().syncId(),
+                    SyncedConfig.of(server).cachedSnapshot().data()
+                )
+            )
+        ).join();
+
+        assertTrue(result.completed());
+        assertNull(result.disconnectReason());
 
         assertEquals(localShared + 7, client.data().shared);
 
@@ -397,6 +511,19 @@ class SyncedConfigTest {
 
         assertEquals(localShared + 7, client.data().shared);
         assertEquals("chosen by the player", client.data().private_);
+    }
+
+    private static void apply(SyncedConfig<?> receiver, ConfigBytes payload) {
+        ClientSyncResult result = receive(receiver, payload);
+        assertTrue(result.completed());
+        assertFalse(result.restartRequired());
+        assertNull(result.disconnectReason());
+    }
+
+    private static ClientSyncResult receive(SyncedConfig<?> receiver, ConfigBytes payload) {
+        Map<String, SyncedConfig<?>> synced = Map.of(receiver.id(), receiver);
+        return new ConfigSyncTransactions(synced::get).receive(
+            new ConfigSyncS2CPacket(true, Map.of(receiver.id(), payload)));
     }
 
     private static <T> RegisteredConfig<T> create(Class<T> type, Path tempDir) {
@@ -472,10 +599,13 @@ class SyncedConfigTest {
 
     public record IntRange(int minimum, int maximum) {
 
-        private static final Codec<IntRange> CODEC = RecordCodecBuilder.create(instance -> instance.group(
-            Codec.INT.fieldOf("minimum").forGetter(IntRange::minimum),
-            Codec.INT.fieldOf("maximum").forGetter(IntRange::maximum)
-        ).apply(instance, IntRange::new));
+        private static final Codec<IntRange> CODEC = RecordCodecBuilder.create(
+            instance -> instance.group(
+                Codec.INT.fieldOf("minimum").forGetter(IntRange::minimum),
+                Codec.INT.fieldOf("maximum").forGetter(IntRange::maximum)
+            ).apply(instance, IntRange::new)
+        );
+
         private static final StreamCodec<ByteBuf, IntRange> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.VAR_INT, IntRange::minimum,
             ByteBufCodecs.VAR_INT, IntRange::maximum,

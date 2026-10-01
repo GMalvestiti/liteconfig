@@ -3,6 +3,8 @@ package com.gmalvestiti.minecraft.liteconfig.support;
 import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
+import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
+import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -28,6 +30,11 @@ public final class ConfigRegistryIsolation implements BeforeEachCallback, AfterE
         resetRegistries();
     }
 
+    public static void beforeGameStartup() throws ReflectiveOperationException {
+        setStaticField(ClientConfigSync.class, "CLIENT_MAIN_THREAD_EXECUTOR", null);
+        setStaticField(ServerConfigSync.class, "SERVER_MAIN_THREAD_EXECUTOR", null);
+    }
+
     private static void resetRegistries() throws ReflectiveOperationException {
         clearStaticMap(ConfigRegistry.class, "REGISTRATIONS");
         Object ownership = staticField(ConfigRegistry.class, "OWNERSHIP").get(null);
@@ -37,19 +44,18 @@ public final class ConfigRegistryIsolation implements BeforeEachCallback, AfterE
         setStaticField(ConfigRegistry.class, "releaseCallback", noCallback);
 
         clearStaticMap(ConfigSyncRegistry.class, "SYNCED");
-        clearStaticMap(ConfigSyncRegistry.class, "SERVER_HASHES");
-        clearStaticMap(ConfigSyncRegistry.class, "PENDING_TRANSACTIONS");
-        setStaticField(ConfigSyncRegistry.class, "broadcastScheduler", (Consumer<Object>) ignored -> {});
-        setStaticField(ConfigSyncRegistry.class, "requestScheduler", (Consumer<Object>) ignored -> {});
-        setStaticField(ConfigSyncRegistry.class, "disconnectScheduler", (Consumer<Object>) ignored -> {});
-        setStaticField(ConfigSyncRegistry.class, "manifestScheduler", (Runnable) () -> {});
-        setStaticField(ConfigSyncRegistry.class, "clientMainThreadExecutor",
+        setStaticField(ClientConfigSync.class, "CLIENT_MAIN_THREAD_EXECUTOR",
             (java.util.concurrent.Executor) Runnable::run);
-        setStaticField(ConfigSyncRegistry.class, "remoteConnectionCheck",
+        setStaticField(ServerConfigSync.class, "SERVER_MAIN_THREAD_EXECUTOR",
+            (java.util.concurrent.Executor) Runnable::run);
+        ClientConfigSync.resetClientConnection();
+        setStaticField(ServerConfigSync.class, "BROADCAST_SCHEDULER", (Consumer<Object>) ignored -> {});
+        setStaticField(ClientConfigSync.class, "REQUEST_SCHEDULER", (Consumer<Object>) ignored -> {});
+        setStaticField(ClientConfigSync.class, "DISCONNECT_SCHEDULER", (Consumer<Object>) ignored -> {});
+        setStaticField(ServerConfigSync.class, "MANIFEST_SCHEDULER", (Runnable) () -> {});
+        setStaticField(ClientConfigSync.class, "REMOTE_CONNECTION_CHECK",
             (BooleanSupplier) () -> false);
-        setStaticField(ConfigSyncRegistry.class, "totalPendingBytes", 0);
-        setStaticField(ConfigSyncRegistry.class, "totalPendingEntries", 0);
-        setStaticField(ConfigSyncRegistry.class, "initialized", false);
+        setStaticField(ConfigSyncRegistry.class, "INITIALIZED", false);
         clearCollection(staticField(LiteConfig.codecs().getClass(), "plannedTypes")
             .get(LiteConfig.codecs()));
     }

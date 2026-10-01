@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.reflection.callback;
 
 import java.util.ArrayDeque;
+import java.util.concurrent.Executor;
 import java.util.function.IntFunction;
 import java.util.function.Consumer;
 
@@ -12,7 +13,7 @@ final class CallbackQueue<T> {
     private final Consumer<CallbackNotification<T>> callback;
     private final IntFunction<? extends RuntimeException> overflow;
     private final Object lock = new Object();
-    private final ArrayDeque<CallbackNotification<T>> pending = new ArrayDeque<>();
+    private final ArrayDeque<QueuedNotification<T>> pending = new ArrayDeque<>();
     private boolean notifying;
 
     CallbackQueue(
@@ -26,8 +27,16 @@ final class CallbackQueue<T> {
     }
 
     Runnable enqueue(CallbackNotification<T> notification) {
+        return enqueue(notification, null, null);
+    }
+
+    Runnable enqueue(
+        CallbackNotification<T> notification,
+        Executor executor,
+        Runnable after
+    ) {
         synchronized (lock) {
-            pending.addLast(notification);
+            pending.addLast(new QueuedNotification<>(notification, executor, after));
         }
         return this::drain;
     }
@@ -40,11 +49,13 @@ final class CallbackQueue<T> {
             notifying = true;
         }
 
-        boolean completed = false;
-        int processed = 0;
+        drain(0, null);
+    }
+
+    private void drain(int processed, Executor executor) {
         try {
             while (true) {
-                CallbackNotification<T> notification;
+                QueuedNotification<T> notification;
 
                 synchronized (lock) {
                     if (processed == MAX_NOTIFICATIONS_PER_DRAIN && !pending.isEmpty()) {
@@ -55,24 +66,54 @@ final class CallbackQueue<T> {
 
                     if (notification == null) {
                         notifying = false;
-                        completed = true;
                         return;
                     }
                 }
 
-                synchronized (executionLock) {
-                    callback.accept(notification);
+                if (notification.executor() != null && notification.executor() != executor) {
+                    int count = processed;
+
+                    notification.executor().execute(() -> {
+                        try {
+                            invoke(notification);
+                            drain(count + 1, notification.executor());
+                        } catch (RuntimeException | Error failure) {
+                            clear();
+                            throw failure;
+                        }
+                    });
+
+                    return;
                 }
 
+                invoke(notification);
                 processed++;
             }
-        } finally {
-            if (!completed) {
-                synchronized (lock) {
-                    notifying = false;
-                    pending.clear();
-                }
+        } catch (RuntimeException | Error failure) {
+            clear();
+            throw failure;
+        }
+    }
+
+    private void invoke(QueuedNotification<T> notification) {
+        synchronized (executionLock) {
+            callback.accept(notification.value());
+            if (notification.after() != null) {
+                notification.after().run();
             }
         }
     }
+
+    private void clear() {
+        synchronized (lock) {
+            notifying = false;
+            pending.clear();
+        }
+    }
+
+    private record QueuedNotification<T>(
+        CallbackNotification<T> value,
+        Executor executor,
+        Runnable after
+    ) {}
 }

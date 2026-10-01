@@ -4,6 +4,8 @@ package com.gmalvestiti.minecraft.liteconfig.platform.neoforge;
 /*import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
 import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
+import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
+import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
@@ -17,15 +19,16 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.HandlerThread;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.List;
+
 @Mod(LiteConfigCommon.MOD_ID)
 public class NeoForgeEntrypoint {
-
-    private static volatile MinecraftServer activeServer;
 
     public NeoForgeEntrypoint(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(NeoForgeEntrypoint::onRegisterPayload);
@@ -34,67 +37,72 @@ public class NeoForgeEntrypoint {
         NeoForge.EVENT_BUS.addListener(NeoForgeEntrypoint::onServerStopped);
         NeoForge.EVENT_BUS.addListener(NeoForgeEntrypoint::onPlayerLoggedIn);
 
-        ConfigSyncRegistry.setBroadcastScheduler(NeoForgeEntrypoint::scheduleBroadcast);
-        ConfigSyncRegistry.setManifestScheduler(NeoForgeEntrypoint::scheduleManifest);
+        ServerConfigSync.setBroadcastScheduler(NeoForgeEntrypoint::scheduleBroadcast);
+        ServerConfigSync.setManifestScheduler(NeoForgeEntrypoint::scheduleManifest);
 
         ConfigSyncRegistry.initialize();
     }
 
     private static void onRegisterPayload(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar(LiteConfigCommon.MOD_ID).optional();
+        PayloadRegistrar registrar = event.registrar(LiteConfigCommon.MOD_ID)
+            .optional().executesOn(HandlerThread.MAIN);
 
         registrar.playToClient(
             ConfigSyncHandshakeS2CPacket.TYPE,
             ConfigSyncHandshakeS2CPacket.STREAM_CODEC,
-            (payload, context) -> context.enqueueWork(() -> {
-                if (ConfigSyncRegistry.hasRemoteConnection()) {
-                    ConfigSyncRegistry.receiveHandshake(payload);
+            (payload, context) -> {
+                if (ClientConfigSync.hasRemoteConnection()) {
+                    ClientConfigSync.receiveHandshake(payload);
                 }
-            }));
+            });
 
         registrar.playToServer(
             ConfigSyncRequestC2SPacket.TYPE,
             ConfigSyncRequestC2SPacket.STREAM_CODEC,
-            (request, context) -> context.enqueueWork(() -> {
+            (request, context) -> {
                 ServerPlayer player = (ServerPlayer) context.player();
-                ConfigSyncRegistry.payloadsFor(request)
+                ServerConfigSync.payloadsFor(request)
                     .forEach(payload -> send(player, payload));
-            }));
+            });
 
         registrar.playToClient(
             ConfigSyncS2CPacket.TYPE,
             ConfigSyncS2CPacket.STREAM_CODEC,
-            (payload, context) -> context.enqueueWork(() -> {
-                if (ConfigSyncRegistry.hasRemoteConnection()) {
-                    ConfigSyncRegistry.receiveResultAsync(payload)
-                        .thenAccept(ConfigSyncRegistry::handleClientResult);
+            (payload, context) -> {
+                if (ClientConfigSync.hasRemoteConnection()) {
+                    ClientConfigSync.receivePayload(payload);
                 }
-            }));
+            });
     }
 
     private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player) {
-            ConfigSyncRegistry.beginHandshake().forEach(payload -> send(player, payload));
+        if (LiteConfigCommon.ACTIVE_SERVER == null
+            || !(event.getEntity() instanceof ServerPlayer player)
+            || !player.connection.hasChannel(ConfigSyncHandshakeS2CPacket.TYPE)) {
+            return;
         }
+
+        ServerConfigSync.beginHandshake().forEach(payload -> send(player, payload));
     }
 
     private static void onServerStarted(ServerStartedEvent event) {
-        activeServer = event.getServer();
+        LiteConfigCommon.ACTIVE_SERVER = event.getServer();
         ConfigEventExecutors.setServerMainThread(event.getServer());
+        ServerConfigSync.setServerMainThreadExecutor(event.getServer());
     }
 
     private static void onServerStopped(ServerStoppedEvent event) {
-        if (activeServer == event.getServer()) {
-            activeServer = null;
+        if (LiteConfigCommon.ACTIVE_SERVER == event.getServer()) {
+            LiteConfigCommon.ACTIVE_SERVER = null;
         }
+
         ConfigEventExecutors.clearServerMainThread(event.getServer());
+        ServerConfigSync.clearServerMainThreadExecutor(event.getServer());
     }
 
-    private static void scheduleBroadcast(java.util.List<ConfigSyncS2CPacket> payloads) {
-        MinecraftServer server = activeServer;
-        if (server == null) {
-            return;
-        }
+    private static void scheduleBroadcast(List<ConfigSyncS2CPacket> payloads) {
+        MinecraftServer server = LiteConfigCommon.ACTIVE_SERVER;
+
         server.execute(() -> {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
                 payloads.forEach(payload -> send(player, payload));
@@ -103,14 +111,20 @@ public class NeoForgeEntrypoint {
     }
 
     private static void scheduleManifest() {
-        MinecraftServer server = activeServer;
-        if (server == null) {
-            return;
-        }
+        MinecraftServer server = LiteConfigCommon.ACTIVE_SERVER;
+
         server.execute(() -> {
-            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-                ConfigSyncRegistry.beginHandshake()
-                    .forEach(payload -> send(player, payload));
+            List<ServerPlayer> players = server.getPlayerList().getPlayers().stream()
+                .filter(player -> player.connection.hasChannel(ConfigSyncHandshakeS2CPacket.TYPE))
+                .toList();
+
+            if (players.isEmpty()) {
+                return;
+            }
+
+            List<ConfigSyncHandshakeS2CPacket> payloads = ServerConfigSync.beginHandshake();
+            for (ServerPlayer player : players) {
+                payloads.forEach(payload -> send(player, payload));
             }
         });
     }

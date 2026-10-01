@@ -20,21 +20,21 @@ class ConfigSyncInitializationTest {
     void testInitializationRegistersExistingAndFutureHolders(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.SyncedConfig> early = holder(tempDir.resolve("early"));
 
-        assertTrue(ConfigSyncRegistry.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
 
         ConfigSyncRegistry.initialize();
 
-        assertFalse(ConfigSyncRegistry.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
 
         early.close();
-        assertTrue(ConfigSyncRegistry.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
 
         ConfigHolder<TestFixtures.SyncedConfig> late = holder(tempDir.resolve("late"));
-        assertFalse(ConfigSyncRegistry.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
 
         late.close();
 
-        assertTrue(ConfigSyncRegistry.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
     }
 
     private static ConfigHolder<TestFixtures.SyncedConfig> holder(Path baseDir) {

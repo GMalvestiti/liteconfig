@@ -1,12 +1,13 @@
 package com.gmalvestiti.minecraft.liteconfig.platform.fabric;
 
 //? if fabric {
-import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
+import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.Minecraft;
@@ -16,46 +17,46 @@ public class FabricClientEntrypoint implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        ConfigEventExecutors.setClientMainThread(Minecraft.getInstance());
+        ClientLifecycleEvents.CLIENT_STARTED.register(FabricClientEntrypoint::onClientStarted);
 
         ClientPlayNetworking.registerGlobalReceiver(ConfigSyncHandshakeS2CPacket.TYPE, (payload, context) -> {
-            if (ConfigSyncRegistry.hasRemoteConnection()) {
-                ConfigSyncRegistry.receiveHandshake(payload);
+            if (ClientConfigSync.hasRemoteConnection()) {
+                ClientConfigSync.receiveHandshake(payload);
             }
         });
 
         ClientPlayNetworking.registerGlobalReceiver(ConfigSyncS2CPacket.TYPE, (payload, context) -> {
-            if (ConfigSyncRegistry.hasRemoteConnection()) {
-                ConfigSyncRegistry.receiveResultAsync(payload)
-                    .thenAccept(ConfigSyncRegistry::handleClientResult);
+            if (ClientConfigSync.hasRemoteConnection()) {
+                ClientConfigSync.receivePayload(payload);
             }
         });
 
-        ConfigSyncRegistry.setClientMainThreadExecutor(
-            task -> Minecraft.getInstance().execute(task));
+        ClientPlayConnectionEvents.DISCONNECT.register(
+            (handler, client) -> ClientConfigSync.resetClientConnection());
+    }
 
-        ConfigSyncRegistry.setRemoteConnectionCheck(() -> {
-            Minecraft client = Minecraft.getInstance();
-            return !client.isLocalServer() && client.getConnection() != null;
-        });
+    private static void onClientStarted(Minecraft client) {
+        ConfigEventExecutors.setClientMainThread(client);
 
-        ConfigSyncRegistry.setRequestScheduler(request -> {
-            Minecraft client = Minecraft.getInstance();
-            if (ConfigSyncRegistry.hasRemoteConnection()
-                && ClientPlayNetworking.canSend(ConfigSyncRequestC2SPacket.TYPE)) {
-                ClientPlayNetworking.send(request);
+        ClientConfigSync.setRemoteConnectionCheck(
+            () -> !client.isLocalServer() && client.getConnection() != null);
+
+        ClientConfigSync.setRequestScheduler(request -> {
+            if (!ClientConfigSync.hasRemoteConnection()
+                || !ClientPlayNetworking.canSend(ConfigSyncRequestC2SPacket.TYPE)) {
+                return;
             }
+
+            ClientPlayNetworking.send(request);
         });
 
-        ConfigSyncRegistry.setDisconnectScheduler(reason -> {
-            Minecraft client = Minecraft.getInstance();
+        ClientConfigSync.setDisconnectScheduler(reason -> {
             if (client.getConnection() != null) {
                 client.getConnection().getConnection().disconnect(Component.translatable(reason));
             }
         });
 
-        ClientPlayConnectionEvents.DISCONNECT.register(
-            (handler, client) -> ConfigSyncRegistry.resetClientConnection());
+        ClientConfigSync.setClientMainThreadExecutor(client);
     }
 }
 //?}

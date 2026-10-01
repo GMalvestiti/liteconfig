@@ -35,9 +35,9 @@ Maven versions include the Lite Config version and the Minecraft build target:
 
 | Minecraft        | Lite Config     |
 |------------------|-----------------|
-| `1.21`-`1.21.10` | `1.2.0-1.21`    |
-| `1.21.11`        | `1.2.0-1.21.11` |
-| `26.1`-`latest`  | `1.2.0-26.1`    |
+| `1.21`-`1.21.10` | `1.3.0-1.21`    |
+| `1.21.11`        | `1.3.0-1.21.11` |
+| `26.1`-`latest`  | `1.3.0-26.1`    |
 
 The examples below target the `1.21` build.
 
@@ -50,7 +50,7 @@ repositories {
 }
 
 dependencies {
-    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.2.0-1.21'
+    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.3.0-1.21'
 }
 ```
 
@@ -59,7 +59,7 @@ Declare the dependency so the loader refuses to start without it:
 ```json
 {
   "depends": {
-    "liteconfig": ">=1.2.0-1.21"
+    "liteconfig": ">=1.3.0-1.21"
   }
 }
 ```
@@ -74,7 +74,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.2.0-1.21'
+    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.3.0-1.21'
 }
 ```
 
@@ -84,7 +84,7 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.2.0,)"
+versionRange = "[1.3.0,)"
 ordering = "NONE"
 side = "BOTH"
 ```
@@ -325,7 +325,8 @@ public final class MyMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // As an alternative to the holder's codec registration above
+        // As an alternative to the holder's codec registration above.
+        // IntRange is only used here as an example, Lite Config supports objects with built-in codecs such as integers out of the box.
         LiteConfig.codecs()
             .registerCodec(IntRange.class, IntRange.CODEC)
             .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
@@ -349,11 +350,13 @@ public final class MyMod implements ModInitializer {
                 System.err.println(violation.id() + ": " + violation.message()));
         }
 
-        // Serialized update and save. Synced values are broadcast by the server after acceptance.
+        // Serialized update and save.
         config.updateAndSaveAsync(state ->
             state.spawnRange = new IntRange(2, 24)
         ).thenAccept(update ->
             System.out.println("Saved: " + update.accepted()));
+        
+        // Both update and updateAndSave broadcast synced values after acceptance.
 
         // Structural metadata for screens, commands, generated help, etc.
         config.metadata().flatten().forEach(property ->

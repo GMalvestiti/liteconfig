@@ -25,49 +25,50 @@ public final class ConfigEventNotifier<T> {
     }
 
     public ConfigSubscription addUpdateListener(Consumer<T> listener, Executor executor) {
-        return add(updateListeners, listener, executor);
+        return add(updateListeners, listener, executor, false);
     }
 
     public ConfigSubscription addUpdateListener(Consumer<T> listener) {
         return addUpdateListener(listener, Runnable::run);
     }
 
-    public ConfigSubscription addLoadListener(Consumer<T> listener, Executor executor) {
-        return add(loadListeners, listener, executor);
+    public ConfigSubscription addLocalUpdateListener(Consumer<T> listener, Executor executor) {
+        return add(updateListeners, listener, executor, true);
     }
 
-    public ConfigSubscription addLoadListener(Consumer<T> listener) {
-        return addLoadListener(listener, Runnable::run);
+    public ConfigSubscription addLoadListener(Consumer<T> listener, Executor executor) {
+        return add(loadListeners, listener, executor, false);
     }
 
     public ConfigSubscription addSaveListener(Consumer<T> listener, Executor executor) {
-        return add(saveListeners, listener, executor);
-    }
-
-    public ConfigSubscription addSaveListener(Consumer<T> listener) {
-        return addSaveListener(listener, Runnable::run);
+        return add(saveListeners, listener, executor, false);
     }
 
     public void notifyUpdated(T state) {
-        dispatch(updateListeners, state);
+        dispatch(updateListeners, state, false);
+    }
+
+    public void notifySynced(T state) {
+        dispatch(updateListeners, state, true);
     }
 
     public void notifyLoaded(T state) {
-        dispatch(loadListeners, state);
+        dispatch(loadListeners, state, false);
     }
 
     public void notifySaved(T state) {
-        dispatch(saveListeners, state);
+        dispatch(saveListeners, state, false);
     }
 
     private ConfigSubscription add(
         List<Listener<T>> listeners,
         Consumer<T> listener,
-        Executor executor
+        Executor executor,
+        boolean localOnly
     ) {
         Listener<T> registered = new Listener<>(
             Objects.requireNonNull(listener, "listener"),
-            Objects.requireNonNull(executor, "executor"));
+            Objects.requireNonNull(executor, "executor"), localOnly);
 
         listeners.add(registered);
 
@@ -77,8 +78,12 @@ public final class ConfigEventNotifier<T> {
         }, listener);
     }
 
-    private void dispatch(List<Listener<T>> listeners, T state) {
+    private void dispatch(List<Listener<T>> listeners, T state, boolean fromSync) {
         for (Listener<T> registered : listeners) {
+            if (fromSync && registered.localOnly) {
+                continue;
+            }
+
             Consumer<T> listener = registered.listener();
             if (listener == null) {
                 listeners.remove(registered);
@@ -115,11 +120,13 @@ public final class ConfigEventNotifier<T> {
 
         private final WeakReference<Consumer<T>> reference;
         private final Executor executor;
+        private final boolean localOnly;
         private final AtomicBoolean subscribed = new AtomicBoolean(true);
 
-        private Listener(Consumer<T> listener, Executor executor) {
+        private Listener(Consumer<T> listener, Executor executor, boolean localOnly) {
             this.reference = new WeakReference<>(listener);
             this.executor = executor;
+            this.localOnly = localOnly;
         }
 
         private Consumer<T> listener() {

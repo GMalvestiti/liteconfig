@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executor;
 
 public final class ConfigFieldCallbacks<T> {
 
@@ -50,6 +51,16 @@ public final class ConfigFieldCallbacks<T> {
 
     public Runnable enqueueChanged(T oldState, T newState, boolean fromSync) {
         return notifications.enqueue(new CallbackNotification<>(oldState, newState, fromSync));
+    }
+
+    public Runnable enqueueSynced(
+        T oldState,
+        T newState,
+        Executor executor,
+        Runnable after
+    ) {
+        return notifications.enqueue(
+            new CallbackNotification<>(oldState, newState, true), executor, after);
     }
 
     private void invoke(CallbackNotification<T> notification) {

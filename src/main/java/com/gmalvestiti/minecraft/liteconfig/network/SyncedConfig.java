@@ -24,34 +24,38 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 
 final class SyncedConfig<T> {
 
     private static final HashFunction SHA_256 = Hashing.sha256();
 
     private final RegisteredConfig<T> config;
-    private final List<SyncedValue> values;
-    private final boolean carriesRestartValues;
-    private final long schema;
+    private List<SyncedValue> values;
+    private boolean carriesRestartValues;
+    private long schema;
     private Snapshot cachedSnapshot;
+    private T snapshotState;
+    private ConfigBytes broadcastHash;
     private List<ConfigSubscription> broadcastSubscriptions = List.of();
 
-    private SyncedConfig(RegisteredConfig<T> config, List<SyncedValue> values) {
+    private SyncedConfig(RegisteredConfig<T> config) {
         this.config = config;
-        this.values = values;
-        this.carriesRestartValues = values.stream().anyMatch(SyncedValue::restart);
-        this.schema = schemaOf(config, values);
-        this.cachedSnapshot = snapshot();
     }
 
     static <T> SyncedConfig<T> of(RegisteredConfig<T> config) {
-        Class<T> rootType = config.model().type();
-        ConfigScope scope = config.model().scope();
+        return new SyncedConfig<>(config);
+    }
+
+    private void initialize() {
+        if (this.cachedSnapshot != null) {
+            return;
+        }
+
+        Class<T> rootType = this.config.model().type();
+        ConfigScope scope = this.config.model().scope();
 
         List<SyncedValue> values = new ArrayList<>();
-        for (ConfigProperty property : config.model().metadata().synced()) {
+        for (ConfigProperty property : this.config.model().metadata().synced()) {
 
             Field[] chain = chainOf(rootType, property.path());
             Type type = chain[chain.length - 1].getGenericType();
@@ -67,64 +71,78 @@ final class SyncedConfig<T> {
                 property.restart()));
         }
 
-        return new SyncedConfig<>(config, List.copyOf(values));
+        this.values = List.copyOf(values);
+
+        this.carriesRestartValues = values.stream().anyMatch(SyncedValue::restart);
+        this.schema = schemaOf(this.config, values);
+        this.snapshotState = this.config.state().published();
+        this.cachedSnapshot = snapshot(this.snapshotState);
+        this.broadcastHash = this.cachedSnapshot.hash();
     }
 
     String id() {
-        return config.model().syncId();
-    }
-
-    ConfigScope scope() {
-        return config.model().scope();
+        return this.config.model().syncId();
     }
 
     boolean wraps(RegisteredConfig<?> registration) {
-        return config == registration;
+        return this.config == registration;
     }
 
-    Snapshot snapshot() {
-        byte[] data = encode();
+    synchronized boolean ready() {
+        return this.cachedSnapshot != null;
+    }
+
+    private Snapshot snapshot(T state) {
+        byte[] data = encode(state);
         return new Snapshot(ConfigBytes.trusted(data), ConfigBytes.trusted(hash(data)));
     }
 
     synchronized boolean differsFrom(ConfigBytes hash) {
-        return !cachedSnapshot.hash().equals(hash);
+        return !cachedSnapshot().hash().equals(hash);
     }
 
     synchronized Snapshot cachedSnapshot() {
-        return cachedSnapshot;
+        initialize();
+
+        T state = this.config.state().published();
+
+        if (this.snapshotState != state) {
+            this.cachedSnapshot = snapshot(state);
+            this.snapshotState = state;
+        }
+
+        return this.cachedSnapshot;
     }
 
     synchronized Snapshot changedSnapshot() {
-        Snapshot snapshot = snapshot();
+        Snapshot snapshot = cachedSnapshot();
 
-        if (cachedSnapshot.hash().equals(snapshot.hash())) {
+        if (this.broadcastHash.equals(snapshot.hash())) {
             return null;
         }
 
-        cachedSnapshot = snapshot;
+        this.broadcastHash = snapshot.hash();
 
         return snapshot;
     }
 
-    private byte[] encode() {
-        ConfigFieldAccess fieldAccess = config.model().fieldAccess();
-        T state = config.state().published();
+    private byte[] encode(T state) {
+        ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
 
         ByteBuf buffer = Unpooled.buffer();
         ByteBuf valueBuffer = Unpooled.buffer();
 
         try {
-            buffer.writeLong(schema);
+            buffer.writeLong(this.schema);
 
-            for (SyncedValue value : values) {
+            for (SyncedValue value : this.values) {
 
                 valueBuffer.clear();
                 value.codec().encode(valueBuffer, value.read(fieldAccess, state));
 
                 int length = valueBuffer.readableBytes();
                 if (length > ConfigSyncProtocol.MAX_VALUE_BYTES) {
-                    throw config.model().scope().exception(
+                    throw this.config.model().scope().exception(
                         ConfigError.SYNC_APPLY_FAILED,
                         id(),
                         "encoded value " + value.path() + " exceeds "
@@ -136,7 +154,7 @@ final class SyncedConfig<T> {
             }
 
             if (buffer.readableBytes() > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
-                throw config.model().scope().exception(
+                throw this.config.model().scope().exception(
                     ConfigError.SYNC_APPLY_FAILED,
                     id(),
                     "encoded config exceeds " + ConfigSyncProtocol.MAX_CONFIG_BYTES + " bytes");
@@ -152,30 +170,17 @@ final class SyncedConfig<T> {
         }
     }
 
-    boolean apply(ConfigBytes payload) {
-
-        Prepared<T> prepared = prepare(payload);
-        if (!prepared.commit()) {
-            return false;
-        }
-
-        return prepared.restartRequired();
-    }
-
     Prepared<T> prepare(ConfigBytes payload) {
-        return await(config.tasks().submit(() -> prepareState(payload)));
-    }
+        cachedSnapshot();
+        ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
 
-    private Prepared<T> prepareState(ConfigBytes payload) {
-        ConfigFieldAccess fieldAccess = config.model().fieldAccess();
-
-        return config.state().writing(() -> {
-            T current = config.state().canonical();
-            T candidate = config.state().copyOfCanonical();
+        return this.config.state().writing(() -> {
+            T current = this.config.state().canonical();
+            T candidate = this.config.state().copyOfCanonical();
 
             decodeInto(payload, fieldAccess, candidate);
 
-            config.guard().validate(candidate);
+            this.config.guard().validate(candidate);
             boolean restartRequired = changesRestartValues(fieldAccess, current, candidate);
 
             return new Prepared<>(this, current, candidate, restartRequired);
@@ -183,46 +188,42 @@ final class SyncedConfig<T> {
     }
 
     private boolean rollbackCommitted(Prepared<T> prepared) {
-        return await(config.tasks().submit(() -> config.state().writing(() -> {
-            if (config.state().canonical() != prepared.candidate) {
+        return this.config.state().writing(() -> {
+            if (this.config.state().canonical() != prepared.candidate) {
                 return false;
             }
 
-            if (!config.exceptionHandler().onWrite(
-                () -> config.engine().save(prepared.before)).completed()) {
+            if (!this.config.exceptionHandler().onWrite(
+                () -> this.config.engine().save(prepared.before)).completed()) {
                 return false;
             }
 
-            config.state().replace(prepared.before);
+            this.config.state().replace(prepared.before);
             synchronized (this) {
-                cachedSnapshot = snapshot();
+                this.broadcastHash = this.cachedSnapshot().hash();
             }
 
             prepared.applied = null;
             return true;
-        })));
+        });
     }
 
-    private boolean commit(Prepared<T> prepared, boolean dispatchImmediately) {
-        Applied<T> applied = await(config.tasks().submit(() -> commitState(prepared)));
+    private boolean commit(Prepared<T> prepared) {
+        Applied<T> applied = commitState(prepared);
 
         if (applied == null) {
             return false;
         }
 
         prepared.applied = applied;
-        if (dispatchImmediately) {
-            dispatch(applied);
-        }
-
         return true;
     }
 
     private Applied<T> commitState(Prepared<T> prepared) {
-        return config.state().writing(() -> {
-            if (config.state().canonical() != prepared.before
-                || !config.exceptionHandler()
-                    .onWrite(() -> config.engine().save(prepared.candidate))
+        return this.config.state().writing(() -> {
+            if (this.config.state().canonical() != prepared.before
+                || !this.config.exceptionHandler()
+                    .onWrite(() -> this.config.engine().save(prepared.candidate))
                     .completed()) {
 
                 return null;
@@ -232,28 +233,29 @@ final class SyncedConfig<T> {
                 return publish(prepared);
             } catch (RuntimeException | Error failure) {
                 restorePublished(prepared);
-                config.exceptionHandler().onWrite(() -> config.engine().save(prepared.before));
+                this.config.exceptionHandler().onWrite(() -> this.config.engine().save(prepared.before));
                 throw failure;
             }
         });
     }
 
     private Applied<T> publish(Prepared<T> prepared) {
-        if (config.state().canonical() != prepared.before) {
-            throw config.model().scope().exception(ConfigError.SYNC_APPLY_FAILED, id(), "config changed during sync");
+        if (this.config.state().canonical() != prepared.before) {
+            throw this.config.model().scope().exception(ConfigError.SYNC_APPLY_FAILED, id(), "config changed during sync");
         }
 
         if (prepared.restartRequired) {
-            config.guard().carryOverRestart(prepared.before, prepared.candidate);
+            this.config.guard().carryOverRestart(prepared.before, prepared.candidate);
         }
 
-        ConfigState.Transition<T> transition = config.state().replace(prepared.candidate);
+        ConfigBytes beforeHash = cachedSnapshot().hash();
+        ConfigState.Transition<T> transition = this.config.state().replace(prepared.candidate);
 
         boolean publishedChanged;
         synchronized (this) {
-            Snapshot updated = snapshot();
-            publishedChanged = !cachedSnapshot.hash().equals(updated.hash());
-            cachedSnapshot = updated;
+            Snapshot updated = cachedSnapshot();
+            publishedChanged = !beforeHash.equals(updated.hash());
+            this.broadcastHash = updated.hash();
         }
 
         return new Applied<>(
@@ -264,41 +266,27 @@ final class SyncedConfig<T> {
     }
 
     private void restorePublished(Prepared<T> prepared) {
-        if (config.state().canonical() != prepared.candidate) {
+        if (this.config.state().canonical() != prepared.candidate) {
             return;
         }
 
-        config.state().replace(prepared.before);
+        this.config.state().replace(prepared.before);
 
         synchronized (this) {
-            cachedSnapshot = snapshot();
+            this.broadcastHash = cachedSnapshot().hash();
         }
     }
 
     private void dispatch(Applied<T> applied) {
-        if (applied.publishedChanged()) {
-            config.model().callbacks().enqueueChanged(
-                applied.beforeState(), applied.afterState(), true).run();
-            config.notifier().notifyUpdated(applied.publishedState());
+        if (!applied.publishedChanged()) {
+            return;
         }
-    }
 
-    private static <V> V await(CompletableFuture<V> future) {
-        try {
-            return future.join();
-        } catch (CompletionException wrapper) {
-            Throwable failure = wrapper.getCause();
-
-            if (failure instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-
-            if (failure instanceof Error error) {
-                throw error;
-            }
-
-            throw wrapper;
-        }
+        this.config.model().callbacks().enqueueSynced(
+            applied.beforeState(),
+            applied.afterState(),
+            ClientConfigSync.clientMainThreadExecutor(),
+            () -> this.config.notifier().notifySynced(applied.publishedState())).run();
     }
 
     private void decodeInto(ConfigBytes payload, ConfigFieldAccess fieldAccess, T candidate) {
@@ -308,11 +296,11 @@ final class SyncedConfig<T> {
             ConfigSyncProtocol.requireReadable(buffer, Long.BYTES, "config schema");
 
             long receivedSchema = buffer.readLong();
-            if (receivedSchema != schema) {
-                throw new DecoderException("schema mismatch: received " + receivedSchema + ", expected " + schema);
+            if (receivedSchema != this.schema) {
+                throw new DecoderException("schema mismatch: received " + receivedSchema + ", expected " + this.schema);
             }
 
-            for (SyncedValue value : values) {
+            for (SyncedValue value : this.values) {
                 int length = ConfigSyncProtocol.readSize(buffer, ConfigSyncProtocol.MAX_VALUE_BYTES, "synced value");
 
                 ConfigSyncProtocol.requireReadable(buffer, length, "synced value");
@@ -332,7 +320,7 @@ final class SyncedConfig<T> {
         } catch (LiteConfigException failure) {
             throw failure;
         } catch (RuntimeException failure) {
-            throw config.model().scope().exception(
+            throw this.config.model().scope().exception(
                 ConfigError.SYNC_APPLY_FAILED,
                 failure,
                 id(),
@@ -369,25 +357,24 @@ final class SyncedConfig<T> {
         }
     }
 
-    @SuppressWarnings("unused")
     void addBroadcastListener(Runnable broadcast) {
         close();
-        broadcastSubscriptions = List.of(
-            config.notifier().addUpdateListener(state -> broadcast.run(), Runnable::run),
-            config.notifier().addLoadListener(state -> broadcast.run(), Runnable::run));
+        this.broadcastSubscriptions = List.of(
+            this.config.notifier().addUpdateListener(state -> broadcast.run(), Runnable::run),
+            this.config.notifier().addLoadListener(state -> broadcast.run(), Runnable::run));
     }
 
     void close() {
-        broadcastSubscriptions.forEach(ConfigSubscription::close);
-        broadcastSubscriptions = List.of();
+        this.broadcastSubscriptions.forEach(ConfigSubscription::close);
+        this.broadcastSubscriptions = List.of();
     }
 
     private boolean changesRestartValues(ConfigFieldAccess fieldAccess, T before, T after) {
-        if (!carriesRestartValues) {
+        if (!this.carriesRestartValues) {
             return false;
         }
 
-        for (SyncedValue value : values) {
+        for (SyncedValue value : this.values) {
             if (value.restart()
                 && changedOnWire(value, value.read(fieldAccess, before), value.read(fieldAccess, after))) {
                 return true;
@@ -489,12 +476,8 @@ final class SyncedConfig<T> {
             this.restartRequired = restartRequired;
         }
 
-        boolean commit() {
-            return owner.commit(this, true);
-        }
-
         boolean commitDeferred() {
-            return owner.commit(this, false);
+            return owner.commit(this);
         }
 
         void dispatch() {
