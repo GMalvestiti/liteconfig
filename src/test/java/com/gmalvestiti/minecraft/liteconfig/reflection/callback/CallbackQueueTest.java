@@ -3,6 +3,8 @@ package com.gmalvestiti.minecraft.liteconfig.reflection.callback;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -17,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class CallbackQueueTest {
 
@@ -121,6 +124,26 @@ class CallbackQueueTest {
         queue.enqueue(notification(2)).run();
 
         assertEquals(1, invoked.get());
+    }
+
+    @Test
+    void testClosingCancelsScheduledAndPendingNotifications() throws Exception {
+        ArrayDeque<Runnable> executor = new ArrayDeque<>();
+        AtomicInteger invoked = new AtomicInteger();
+        CallbackQueue<Integer> queue = new CallbackQueue<>(
+            new Object(), notification -> invoked.incrementAndGet(),
+            limit -> new IllegalStateException("limit " + limit));
+        queue.enqueue(notification(1), executor::addLast, invoked::incrementAndGet).run();
+        queue.enqueue(notification(2)).run();
+
+        queue.close();
+
+        Field scheduled = CallbackQueue.class.getDeclaredField("scheduled");
+        scheduled.setAccessible(true);
+        assertNull(scheduled.get(queue));
+        executor.removeFirst().run();
+        assertEquals(0, invoked.get());
+        assertThrows(IllegalStateException.class, () -> queue.enqueue(notification(3)));
     }
 
     private static void await(CountDownLatch latch) {

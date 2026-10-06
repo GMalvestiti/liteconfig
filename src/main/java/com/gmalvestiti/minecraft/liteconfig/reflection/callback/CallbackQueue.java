@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.reflection.callback;
 
 import java.util.ArrayDeque;
+import java.lang.ref.WeakReference;
 import java.util.concurrent.Executor;
 import java.util.function.IntFunction;
 import java.util.function.Consumer;
@@ -15,6 +16,8 @@ final class CallbackQueue<T> {
     private final Object lock = new Object();
     private final ArrayDeque<QueuedNotification<T>> pending = new ArrayDeque<>();
     private boolean notifying;
+    private boolean closed;
+    private QueuedNotification<T> scheduled;
 
     CallbackQueue(
         Object executionLock,
@@ -36,6 +39,9 @@ final class CallbackQueue<T> {
         Runnable after
     ) {
         synchronized (lock) {
+            if (closed) {
+                throw new IllegalStateException("Config callback queue is closed");
+            }
             pending.addLast(new QueuedNotification<>(notification, executor, after));
         }
         return this::drain;
@@ -43,7 +49,7 @@ final class CallbackQueue<T> {
 
     private void drain() {
         synchronized (lock) {
-            if (notifying) {
+            if (closed || notifying) {
                 return;
             }
             notifying = true;
@@ -58,6 +64,10 @@ final class CallbackQueue<T> {
                 QueuedNotification<T> notification;
 
                 synchronized (lock) {
+                    if (closed) {
+                        return;
+                    }
+
                     if (processed == MAX_NOTIFICATIONS_PER_DRAIN && !pending.isEmpty()) {
                         throw overflow.apply(MAX_NOTIFICATIONS_PER_DRAIN);
                     }
@@ -73,13 +83,22 @@ final class CallbackQueue<T> {
                 if (notification.executor() != null && notification.executor() != executor) {
                     int count = processed;
 
+                    WeakReference<CallbackQueue<T>> owner = new WeakReference<>(this);
+                    WeakReference<QueuedNotification<T>> queued = new WeakReference<>(notification);
+
+                    synchronized (lock) {
+                        if (closed) {
+                            return;
+                        }
+                        scheduled = notification;
+                    }
+
                     notification.executor().execute(() -> {
-                        try {
-                            invoke(notification);
-                            drain(count + 1, notification.executor());
-                        } catch (RuntimeException | Error failure) {
-                            clear();
-                            throw failure;
+                        CallbackQueue<T> current = owner.get();
+                        QueuedNotification<T> next = queued.get();
+
+                        if (current != null && next != null) {
+                            current.resume(next, count);
                         }
                     });
 
@@ -97,7 +116,14 @@ final class CallbackQueue<T> {
 
     private void invoke(QueuedNotification<T> notification) {
         synchronized (executionLock) {
+            synchronized (lock) {
+                if (closed) {
+                    return;
+                }
+            }
+
             callback.accept(notification.value());
+
             if (notification.after() != null) {
                 notification.after().run();
             }
@@ -107,7 +133,32 @@ final class CallbackQueue<T> {
     private void clear() {
         synchronized (lock) {
             notifying = false;
+            scheduled = null;
             pending.clear();
+        }
+    }
+
+    void close() {
+        synchronized (lock) {
+            closed = true;
+            clear();
+        }
+    }
+
+    private void resume(QueuedNotification<T> notification, int processed) {
+        try {
+            synchronized (lock) {
+                if (closed || scheduled != notification) {
+                    return;
+                }
+                scheduled = null;
+            }
+
+            invoke(notification);
+            drain(processed + 1, notification.executor());
+        } catch (RuntimeException | Error failure) {
+            clear();
+            throw failure;
         }
     }
 

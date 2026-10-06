@@ -60,6 +60,13 @@ public final class ConfigEventNotifier<T> {
         dispatch(saveListeners, state, false);
     }
 
+    public void close() {
+        for (List<Listener<T>> listeners : List.of(updateListeners, loadListeners, saveListeners)) {
+            listeners.forEach(Listener::close);
+            listeners.clear();
+        }
+    }
+
     private ConfigSubscription add(
         List<Listener<T>> listeners,
         Consumer<T> listener,
@@ -90,14 +97,21 @@ public final class ConfigEventNotifier<T> {
                 continue;
             }
 
+            PendingNotification notification = registered.enqueue(() -> {
+                Consumer<T> current = registered.listener();
+                if (current != null) {
+                    invoke(current, state);
+                }
+            });
+
+            if (notification == null) {
+                continue;
+            }
+
             try {
-                registered.executor().execute(() -> {
-                    Consumer<T> current = registered.listener();
-                    if (current != null) {
-                        invoke(current, state);
-                    }
-                });
+                registered.executor().execute(notification);
             } catch (RuntimeException ex) {
+                notification.cancel();
                 report(ex);
             }
         }
@@ -122,6 +136,7 @@ public final class ConfigEventNotifier<T> {
         private final Executor executor;
         private final boolean localOnly;
         private final AtomicBoolean subscribed = new AtomicBoolean(true);
+        private final List<PendingNotification> pending = new CopyOnWriteArrayList<>();
 
         private Listener(Consumer<T> listener, Executor executor, boolean localOnly) {
             this.reference = new WeakReference<>(listener);
@@ -137,10 +152,52 @@ public final class ConfigEventNotifier<T> {
             return executor;
         }
 
-        private void close() {
+        private synchronized PendingNotification enqueue(Runnable action) {
+            if (!subscribed.get()) {
+                return null;
+            }
+
+            PendingNotification notification = new PendingNotification(action, pending);
+            pending.add(notification);
+
+            return notification;
+        }
+
+        private synchronized void close() {
             subscribed.set(false);
             reference.clear();
+            pending.forEach(PendingNotification::cancel);
+            pending.clear();
         }
     }
 
+    private static final class PendingNotification implements Runnable {
+        private Runnable action;
+        private final List<PendingNotification> pending;
+
+        private PendingNotification(Runnable action, List<PendingNotification> pending) {
+            this.action = action;
+            this.pending = pending;
+        }
+
+        @Override
+        public void run() {
+            Runnable current;
+
+            synchronized (this) {
+                current = action;
+                action = null;
+            }
+
+            pending.remove(this);
+            if (current != null) {
+                current.run();
+            }
+        }
+
+        private synchronized void cancel() {
+            action = null;
+            pending.remove(this);
+        }
+    }
 }

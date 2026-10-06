@@ -11,6 +11,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 
 import java.lang.reflect.Field;
+import java.lang.ref.WeakReference;
 
 public final class ConfigBinder {
 
@@ -27,7 +28,7 @@ public final class ConfigBinder {
         }
     };
 
-    private static volatile Bound bound;
+    private static volatile WeakReference<Bound> bound = new WeakReference<>(null);
 
     private ConfigBinder() {}
 
@@ -53,7 +54,7 @@ public final class ConfigBinder {
         ConfigCodecRegistry codecs = LiteConfig.codecs();
 
         int generation = codecs.generation();
-        Bound currentBound = bound;
+        Bound currentBound = bound.get();
 
         if (currentBound != null && currentBound.generation() == generation) {
             return currentBound.gson();
@@ -65,7 +66,7 @@ public final class ConfigBinder {
     private static synchronized Gson bind(ConfigCodecRegistry codecs) {
         int generation = codecs.generation();
 
-        Bound currentBound = bound;
+        Bound currentBound = bound.get();
 
         if (currentBound != null && currentBound.generation() == generation) {
             return currentBound.gson();
@@ -79,7 +80,7 @@ public final class ConfigBinder {
             .serializeNulls()
             .create();
 
-        bound = new Bound(generation, gson);
+        bound = new WeakReference<>(new Bound(generation, gson));
 
         return gson;
     }

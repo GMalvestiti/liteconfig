@@ -53,6 +53,10 @@ public final class ConfigFieldCallbacks<T> {
         return notifications.enqueue(new CallbackNotification<>(oldState, newState, fromSync));
     }
 
+    public void close() {
+        notifications.close();
+    }
+
     public Runnable enqueueSynced(
         T oldState,
         T newState,

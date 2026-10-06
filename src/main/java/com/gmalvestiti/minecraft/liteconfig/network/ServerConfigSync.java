@@ -13,6 +13,7 @@ import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import java.lang.ref.WeakReference;
 
 public final class ServerConfigSync {
 
@@ -111,15 +112,17 @@ public final class ServerConfigSync {
             return;
         }
 
+        WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
         executor.execute(() -> {
-            if (ConfigSyncRegistry.get(synced.id()) != synced) {
+            SyncedConfig<?> current = reference.get();
+            if (current == null || ConfigSyncRegistry.get(current.id()) != current) {
                 return;
             }
 
-            SyncedConfig.Snapshot snapshot = synced.changedSnapshot();
+            SyncedConfig.Snapshot snapshot = current.changedSnapshot();
 
             if (snapshot != null) {
-                BROADCAST_SCHEDULER.accept(packets(Map.of(synced.id(), snapshot.data())));
+                BROADCAST_SCHEDULER.accept(packets(Map.of(current.id(), snapshot.data())));
             }
         });
     }

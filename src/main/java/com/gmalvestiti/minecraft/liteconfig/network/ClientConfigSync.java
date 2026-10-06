@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.lang.ref.WeakReference;
 
 import static com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncProtocol.ENTRIES_PER_PACKET;
 
@@ -131,15 +132,17 @@ public final class ClientConfigSync {
             return;
         }
 
+        WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
         executor.execute(() -> {
-            if (ConfigSyncRegistry.get(synced.id()) != synced) {
+            SyncedConfig<?> current = reference.get();
+            if (current == null || ConfigSyncRegistry.get(current.id()) != current) {
                 return;
             }
 
-            ConfigBytes serverHash = SERVER_HASHES.get(synced.id());
+            ConfigBytes serverHash = SERVER_HASHES.get(current.id());
 
-            if (serverHash != null && synced.differsFrom(serverHash)) {
-                request(List.of(synced.id()));
+            if (serverHash != null && current.differsFrom(serverHash)) {
+                request(List.of(current.id()));
             }
         });
     }

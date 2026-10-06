@@ -12,10 +12,12 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.WeakHashMap;
 import java.util.stream.Stream;
+import java.lang.ref.WeakReference;
 
 final class MetadataTraversal {
 
-    private static final Map<List<ConfigProperty>, Index> INDEXES = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<List<ConfigProperty>, WeakReference<Index>> INDEXES =
+        Collections.synchronizedMap(new WeakHashMap<>());
 
     private MetadataTraversal() {}
 
@@ -39,7 +41,15 @@ final class MetadataTraversal {
 
     private static Index index(List<ConfigProperty> roots) {
         synchronized (INDEXES) {
-            return INDEXES.computeIfAbsent(roots, MetadataTraversal::buildIndex);
+            WeakReference<Index> reference = INDEXES.get(roots);
+            Index current = reference == null ? null : reference.get();
+
+            if (current == null) {
+                current = buildIndex(roots);
+                INDEXES.put(roots, new WeakReference<>(current));
+            }
+
+            return current;
         }
     }
 

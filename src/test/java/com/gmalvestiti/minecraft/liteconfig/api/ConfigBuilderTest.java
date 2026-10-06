@@ -197,8 +197,9 @@ class ConfigBuilderTest {
                 .create();
 
         holder.close();
-        assertEquals(1, holder.data().value);
-        assertEquals(TestFixtures.SimpleConfig.class, holder.metadata().type());
+        assertThrows(NullPointerException.class, holder::data);
+        assertEquals(ConfigError.HOLDER_CLOSED,
+            assertThrows(LiteConfigException.class, holder::metadata).error());
 
         LiteConfigException failure = assertThrows(
             LiteConfigException.class,

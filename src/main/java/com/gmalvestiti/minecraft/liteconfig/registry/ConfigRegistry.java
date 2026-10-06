@@ -147,8 +147,16 @@ public final class ConfigRegistry {
             }
 
             if (REGISTRATIONS.remove(key, slot)) {
-                releaseCallback.accept(registration);
-                registration.pathResolver().releaseForConfig(registration.model().type());
+                try {
+                    releaseCallback.accept(registration);
+                } finally {
+                    try {
+                        registration.notifier().close();
+                        registration.model().callbacks().close();
+                    } finally {
+                        registration.pathResolver().releaseForConfig(registration.model().type());
+                    }
+                }
             }
         }
     }

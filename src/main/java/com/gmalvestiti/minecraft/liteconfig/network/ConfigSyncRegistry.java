@@ -9,6 +9,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.lang.ref.WeakReference;
 
 public final class ConfigSyncRegistry {
 
@@ -51,9 +52,13 @@ public final class ConfigSyncRegistry {
         try {
             synced.addBroadcastListener(() -> ServerConfigSync.broadcast(synced));
 
+            WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
             runOnMainThread(() -> {
-                activate(synced);
-                ServerConfigSync.refreshManifest();
+                SyncedConfig<?> current = reference.get();
+                if (current != null) {
+                    activate(current);
+                    ServerConfigSync.refreshManifest();
+                }
             });
         } catch (RuntimeException | Error failure) {
             if (SYNCED.remove(synced.id(), synced)) {

@@ -55,7 +55,8 @@ public interface ConfigHolder<T> extends AutoCloseable {
     /**
      * Returns the currently published state.
      *
-     * <p>This read remains available after {@link #close()}.
+     * <p>Only valid while this holder is open. This hot-path read deliberately does not check
+     * whether the holder is closed; accessing it after release throws {@link NullPointerException}.
      *
      * @return the shared state instance; never {@code null}; treat it as read-only
      */
@@ -76,7 +77,7 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * }</pre>
      *
      * <p>Computed once when the holder is built, so calling this is cheap and the result never
-     * changes. This read remains available after {@link #close()}.
+     * changes. This read is rejected after {@link #close()}.
      *
      * @return the immutable metadata of {@code T}; never {@code null}
      */
@@ -234,9 +235,15 @@ public interface ConfigHolder<T> extends AutoCloseable {
     /**
      * Releases this holder and removes every lifecycle listener registered through it.
      *
-     * <p>The shared registration is released after the last holder closes. {@link #data()} and
-     * {@link #metadata()} remain readable; copying and lifecycle operations are rejected, and
-     * later listener-registration attempts return a no-op subscription.
+     * <p>Already queued operations finish before this holder drops its state and registration
+     * references. The shared registration and file ownership are released after the last holder
+     * closes; persisted files are not deleted. Metadata, copying, and lifecycle operations are
+     * rejected after closing, and later listener-registration attempts return a no-op subscription.
+     * {@link #data()} has no closed guard and must not be used after closing.
+     *
+     * <p>Outside a config worker, this method waits for release. From a worker callback it queues
+     * release without waiting, so the operation currently running can finish.
+     * References previously returned to callers remain the callers' responsibility.
      */
     @Override
     void close();

@@ -30,8 +30,8 @@ public final class ConfigSubscriptions {
     }
 
     private static final class Implementation implements ConfigSubscription {
-        private final Runnable closeAction;
-        private final Collection<? super ConfigSubscription> owner;
+        private Runnable closeAction;
+        private Collection<? super ConfigSubscription> owner;
         private final AtomicBoolean open = new AtomicBoolean(true);
         private Object retained;
 
@@ -51,9 +51,11 @@ public final class ConfigSubscriptions {
                 try {
                     closeAction.run();
                 } finally {
+                    closeAction = null;
                     retained = null;
                     if (owner != null) {
                         owner.remove(this);
+                        owner = null;
                     }
                 }
             }
