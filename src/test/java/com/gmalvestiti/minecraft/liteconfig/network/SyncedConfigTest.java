@@ -6,7 +6,9 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
+import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
+import com.gmalvestiti.minecraft.liteconfig.holder.ConfigHolderImplementation;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
@@ -32,9 +34,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -266,34 +265,25 @@ class SyncedConfigTest {
         candidate.shared = 8;
         source.state().replace(candidate);
 
-        ExecutorService clientThread = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "test-client-main"));
-        try {
-            ConfigRegistryIsolation.beforeGameStartup();
-            ClientConfigSync.setClientMainThreadExecutor(clientThread);
-            ClientSyncResult result = ClientConfigSync.receivePayload(
-                new ConfigSyncS2CPacket(
-                    true,
-                    Map.of(
-                        target.model().syncId(),
-                        SyncedConfig.of(source).cachedSnapshot().data()
-                    )
+        ClientSyncResult result = ClientConfigSync.receivePayload(
+            new ConfigSyncS2CPacket(
+                true,
+                Map.of(
+                    target.model().syncId(),
+                    SyncedConfig.of(source).cachedSnapshot().data()
                 )
-            ).join();
-            assertTrue(result.completed());
-            assertNull(result.disconnectReason());
-            clientThread.submit(() -> {}).get();
-        } finally {
-            clientThread.shutdownNow();
-        }
+            )
+        );
+        assertTrue(result.completed());
+        assertNull(result.disconnectReason());
 
-        assertEquals(List.of("test-client-main"), CallbackSyncedConfig.THREADS);
+        assertEquals(List.of(Thread.currentThread().getName()), CallbackSyncedConfig.THREADS);
         assertTrue(Files.readString(tempDir.resolve("target").resolve("callback-sync.json5"))
             .contains("\"shared\": 8"));
     }
 
     @Test
-    void testConnectionResetDoesNotCancelQueuedCallbacks(@TempDir Path tempDir) {
+    void testSyncedCallbacksCompleteBeforeConnectionReset(@TempDir Path tempDir) {
         CallbackSyncedConfig.EVENTS.clear();
 
         RegisteredConfig<CallbackSyncedConfig> source =
@@ -311,13 +301,41 @@ class SyncedConfigTest {
         target.notifier().addUpdateListener(ignored -> notifications.incrementAndGet());
 
         apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
-        assertEquals(1, actions.size());
+        assertEquals(List.of(new SyncCallbackEvent(1, 7, true)), CallbackSyncedConfig.EVENTS);
+        assertEquals(1, notifications.get());
 
         ClientConfigSync.resetClientConnection();
         actions.forEach(Runnable::run);
 
         assertEquals(List.of(new SyncCallbackEvent(1, 7, true)), CallbackSyncedConfig.EVENTS);
         assertEquals(1, notifications.get());
+    }
+
+    @Test
+    void testSyncedFieldCallbackRejectsNestedHolderMutation(@TempDir Path tempDir) {
+        RegisteredConfig<CallbackSyncedConfig> source =
+            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<CallbackSyncedConfig> target =
+            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+        ConfigHolder<CallbackSyncedConfig> holder = new ConfigHolderImplementation<>(target, false);
+        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        candidate.shared = 7;
+        source.state().replace(candidate);
+        List<ConfigError> failures = new ArrayList<>();
+        CallbackSyncedConfig.AFTER_RECORD = () -> {
+            LiteConfigException failure = assertThrows(
+                LiteConfigException.class, () -> holder.update(value -> value.shared = 99));
+            failures.add(failure.error());
+        };
+        try {
+            apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+        } finally {
+            CallbackSyncedConfig.AFTER_RECORD = () -> {
+            };
+        }
+
+        assertEquals(List.of(ConfigError.NESTED_CONFIG_OPERATION), failures);
+        assertEquals(7, holder.data().shared);
     }
 
     @Test
@@ -388,9 +406,8 @@ class SyncedConfigTest {
         Runnable firstDrain = config.model().callbacks().enqueueChanged(first, second, false);
         Runnable secondDrain = config.model().callbacks().enqueueChanged(second, third, false);
 
-        CompletableFuture.allOf(
-            CompletableFuture.runAsync(firstDrain),
-            CompletableFuture.runAsync(secondDrain)).join();
+        firstDrain.run();
+        secondDrain.run();
 
         assertEquals(1, CallbackSyncedConfig.MAX_ACTIVE.get());
         assertEquals(
@@ -495,7 +512,7 @@ class SyncedConfigTest {
                     SyncedConfig.of(server).cachedSnapshot().data()
                 )
             )
-        ).join();
+        );
 
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
@@ -557,11 +574,13 @@ class SyncedConfigTest {
     public static class CallbackSyncedConfig {
 
         private static final List<SyncCallbackEvent> EVENTS =
-            Collections.synchronizedList(new ArrayList<>());
+            new ArrayList<>();
         private static final List<String> THREADS =
-            Collections.synchronizedList(new ArrayList<>());
+            new ArrayList<>();
         private static final AtomicInteger ACTIVE = new AtomicInteger();
         private static final AtomicInteger MAX_ACTIVE = new AtomicInteger();
+        private static Runnable AFTER_RECORD = () -> {
+        };
 
         @Entry(callback = "record")
         public int shared = 1;
@@ -570,19 +589,17 @@ class SyncedConfigTest {
             int active = ACTIVE.incrementAndGet();
             MAX_ACTIVE.accumulateAndGet(active, Math::max);
             try {
-                Thread.sleep(20);
                 EVENTS.add(new SyncCallbackEvent(oldValue, newValue, fromSync));
                 THREADS.add(Thread.currentThread().getName());
-            } catch (InterruptedException failure) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException(failure);
+                AFTER_RECORD.run();
             } finally {
                 ACTIVE.decrementAndGet();
             }
         }
     }
 
-    private record SyncCallbackEvent(int oldValue, int newValue, boolean fromSync) {}
+    private record SyncCallbackEvent(int oldValue, int newValue, boolean fromSync) {
+    }
 
     public record RgbColor(int red, int blue) {
 

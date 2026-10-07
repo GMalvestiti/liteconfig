@@ -37,9 +37,8 @@ import java.lang.annotation.Target;
  *
  * <p>The method name is yours to choose; only {@link #from()} decides when it runs.
  *
- * <p>Migration methods may run on LiteConfig's asynchronous worker. They must be deterministic
- * data transformations and must not access client-only classes, worlds, entities, registries, or
- * other game state that is confined to the main thread.
+ * <p>Keep migrations deterministic data transformations. They may run during initial holder
+ * creation before worlds or other game state are available.
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

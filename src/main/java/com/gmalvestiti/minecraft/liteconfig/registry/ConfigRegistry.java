@@ -11,8 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
@@ -226,7 +224,9 @@ public final class ConfigRegistry {
     private static final class RegistrationSlot {
 
         private final Thread owner;
-        private final CompletableFuture<RegisteredConfig<?>> result = new CompletableFuture<>();
+        private volatile boolean done;
+        private volatile RegisteredConfig<?> value;
+        private volatile Throwable failure;
         private int references = 1;
         private boolean released;
 
@@ -235,23 +235,27 @@ public final class ConfigRegistry {
         }
 
         private boolean isOwnedBy(Thread thread) {
-            return owner == thread && !result.isDone();
+            return owner == thread && !done;
         }
 
         private boolean isDone() {
-            return result.isDone();
+            return done;
         }
 
         private Thread owner() {
             return owner;
         }
 
-        private void complete(RegisteredConfig<?> registration) {
-            result.complete(registration);
+        private synchronized void complete(RegisteredConfig<?> registration) {
+            value = registration;
+            done = true;
+            notifyAll();
         }
 
-        private void fail(Throwable failure) {
-            result.completeExceptionally(failure);
+        private synchronized void fail(Throwable failure) {
+            this.failure = failure;
+            done = true;
+            notifyAll();
         }
 
         private synchronized boolean retain() {
@@ -271,28 +275,41 @@ public final class ConfigRegistry {
         }
 
         private RegisteredConfig<?> value() {
-            return result.getNow(null);
+            return done && failure == null ? value : null;
         }
 
         private synchronized RegisteredConfig<?> activeValue() {
-            return released || result.isCompletedExceptionally() ? null : value();
+            return released ? null : value();
         }
 
-        private RegisteredConfig<?> await() {
+        private synchronized RegisteredConfig<?> await() {
+            boolean interrupted = false;
             try {
-                return result.join();
-            } catch (CompletionException failure) {
-                Throwable cause = failure.getCause();
+                while (!done) {
+                    try {
+                        wait();
+                    } catch (InterruptedException ignored) {
+                        interrupted = true;
+                    }
+                }
 
-                if (cause instanceof RuntimeException runtime) {
+                if (failure instanceof RuntimeException runtime) {
                     throw runtime;
                 }
 
-                if (cause instanceof Error error) {
+                if (failure instanceof Error error) {
                     throw error;
                 }
 
-                throw failure;
+                if (failure != null) {
+                    throw new IllegalStateException("Config registration failed", failure);
+                }
+
+                return value;
+            } finally {
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }

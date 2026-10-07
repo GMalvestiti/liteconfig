@@ -1,6 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.api;
 
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
@@ -29,8 +29,8 @@ class ConfigBuilderTest {
 
     @BeforeEach
     void configureLogicalThreads() {
-        ConfigEventExecutors.setClientMainThread(Runnable::run);
-        ConfigEventExecutors.setServerMainThread(Runnable::run);
+        ConfigEventThreads.setClientMainThread(Runnable::run);
+        ConfigEventThreads.setServerMainThread(Runnable::run);
     }
 
     @Test
@@ -214,8 +214,8 @@ class ConfigBuilderTest {
         ArrayDeque<Runnable> clientThread = new ArrayDeque<>();
         ArrayDeque<Runnable> serverThread = new ArrayDeque<>();
         List<Integer> updates = new ArrayList<>();
-        ConfigEventExecutors.setClientMainThread(clientThread::addLast);
-        ConfigEventExecutors.setServerMainThread(serverThread::addLast);
+        ConfigEventThreads.setClientMainThread(clientThread::addLast);
+        ConfigEventThreads.setServerMainThread(serverThread::addLast);
         try {
             ConfigHolder<TestFixtures.SimpleConfig> holder =
                 LiteConfig.holder(TestFixtures.SimpleConfig.class)
@@ -226,13 +226,39 @@ class ConfigBuilderTest {
 
             holder.update(state -> state.value = 2);
 
-            assertTrue(updates.isEmpty(), "the config worker must not invoke game listeners");
+            assertTrue(updates.isEmpty(), "listeners must wait for their logical game side");
             clientThread.removeFirst().run();
             serverThread.removeFirst().run();
             assertEquals(List.of(2, 2), updates);
         } finally {
-            ConfigEventExecutors.setClientMainThread(Runnable::run);
-            ConfigEventExecutors.setServerMainThread(Runnable::run);
+            ConfigEventThreads.setClientMainThread(Runnable::run);
+            ConfigEventThreads.setServerMainThread(Runnable::run);
+        }
+    }
+
+    @Test
+    void testQueuedGameListenersRetainEachPublishedSnapshotAfterOperationsReturn(@TempDir Path tempDir) {
+        ArrayDeque<Runnable> gameThread = new ArrayDeque<>();
+        List<Integer> updates = new ArrayList<>();
+        ConfigEventThreads.setClientMainThread(gameThread::addLast);
+        try {
+            ConfigHolder<TestFixtures.SimpleConfig> holder =
+                LiteConfig.holder(TestFixtures.SimpleConfig.class)
+                    .modId("mod").baseDir(tempDir)
+                    .onUpdate(ConfigSide.CLIENT, state -> updates.add(state.value))
+                    .create();
+
+            holder.update(state -> state.value = 2);
+            holder.update(state -> state.value = 3);
+
+            assertEquals(3, holder.data().value);
+            assertTrue(updates.isEmpty());
+            assertEquals(2, gameThread.size());
+            gameThread.removeFirst().run();
+            gameThread.removeFirst().run();
+            assertEquals(List.of(2, 3), updates);
+        } finally {
+            ConfigEventThreads.setClientMainThread(Runnable::run);
         }
     }
 
@@ -240,7 +266,7 @@ class ConfigBuilderTest {
     void testClosingHolderCancelsQueuedListeners(@TempDir Path tempDir) {
         ArrayDeque<Runnable> gameThread = new ArrayDeque<>();
         List<Integer> updates = new ArrayList<>();
-        ConfigEventExecutors.setClientMainThread(gameThread::addLast);
+        ConfigEventThreads.setClientMainThread(gameThread::addLast);
         try {
             ConfigHolder<TestFixtures.SimpleConfig> holder =
                 LiteConfig.holder(TestFixtures.SimpleConfig.class)
@@ -255,7 +281,7 @@ class ConfigBuilderTest {
 
             assertTrue(updates.isEmpty());
         } finally {
-            ConfigEventExecutors.setClientMainThread(Runnable::run);
+            ConfigEventThreads.setClientMainThread(Runnable::run);
         }
     }
 

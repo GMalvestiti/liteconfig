@@ -2,7 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.platform.neoforge;
 
 //? if neoforge {
 /*import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 
@@ -35,7 +35,7 @@ public class NeoForgeClientEntrypoint {
         NeoForge.EVENT_BUS.unregister(CLIENT_START);
 
         Minecraft client = Minecraft.getInstance();
-        ConfigEventExecutors.setClientMainThread(client);
+        ConfigEventThreads.setClientMainThread(client);
 
         ClientConfigSync.setRemoteConnectionCheck(
             () -> !client.isLocalServer() && client.getConnection() != null);

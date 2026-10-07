@@ -3,17 +3,15 @@ package com.gmalvestiti.minecraft.liteconfig.api;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
  * Operates on one config root after {@link ConfigBuilder#create()} completes.
  *
- * <p>Read the published state through {@link #data()} and treat it as read-only. Take a
- * {@link #copy()} when you need an object you may mutate, or a reading that cannot shift
- * underneath you. Change values through {@link #update(Consumer)} or
- * {@link #updateAndSave(Consumer)}, which mutate a private candidate, validate it, and publish
- * only accepted results:
+ * <p>Read the published state safely from any thread through {@link #data()} and treat it as
+ * read-only. Use {@link #copy()} for a private, editable snapshot. Change values through
+ * {@link #update(Consumer)} or {@link #updateAndSave(Consumer)},
+ * which mutate a private candidate, validate it, and publish the accepted result:
  *
  * <pre>{@code
  * MyModConfig shared = holder.data();   // cheap, shared, read-only
@@ -34,11 +32,9 @@ import java.util.function.Consumer;
  * }
  * }</pre>
  *
- * <p>All lifecycle operations are serialized on this config's worker lane. Synchronous methods
- * wait for their queued work; asynchronous methods return its {@link CompletableFuture}. Hooks run
- * on that lane, while lifecycle listeners are dispatched to their configured game-thread executor.
- * Starting another config operation from a mutator or hook is rejected instead of risking a
- * cross-queue deadlock or overwriting nested changes.
+ * <p>Call loads, updates, and saves on the game thread; they complete before returning.
+ * Starting another operation on the same config from a mutator, hook, or inline listener is
+ * rejected, including through another holder, so nested changes cannot be overwritten.
  *
  * <p>A logical-side listener is skipped and logged when that side has no active main-thread
  * executor. Work queued for a server that stops or is replaced is discarded rather than delivered
@@ -54,6 +50,9 @@ public interface ConfigHolder<T> extends AutoCloseable {
 
     /**
      * Returns the currently published state.
+     *
+     * <p>This read is lock-free and safe from any thread. Treat the returned object and its nested
+     * values as read-only.
      *
      * <p>Only valid while this holder is open. This hot-path read deliberately does not check
      * whether the holder is closed; accessing it after release throws {@link NullPointerException}.
@@ -164,36 +163,6 @@ public interface ConfigHolder<T> extends AutoCloseable {
     void save();
 
     /**
-     * Loads persisted state on the config worker.
-     *
-     * @return a future that completes after publication
-     */
-    CompletableFuture<Void> loadAsync();
-
-    /**
-     * Mutates and publishes a private candidate on the config worker.
-     *
-     * @param mutator edits the candidate; must not be {@code null}
-     * @return a future completing with the update result
-     */
-    CompletableFuture<UpdateResult> updateAsync(Consumer<T> mutator);
-
-    /**
-     * Mutates, publishes, and saves a private candidate on the config worker.
-     *
-     * @param mutator edits the candidate; must not be {@code null}
-     * @return a future completing with the update result
-     */
-    CompletableFuture<UpdateResult> updateAndSaveAsync(Consumer<T> mutator);
-
-    /**
-     * Saves the current state on the config worker.
-     *
-     * @return a future completing after persistence
-     */
-    CompletableFuture<Void> saveAsync();
-
-    /**
      * Registers an update listener on the selected logical side's main thread.
      * {@link ConfigSide#BOTH} registers one listener for each side.
      *
@@ -235,15 +204,13 @@ public interface ConfigHolder<T> extends AutoCloseable {
     /**
      * Releases this holder and removes every lifecycle listener registered through it.
      *
-     * <p>Already queued operations finish before this holder drops its state and registration
-     * references. The shared registration and file ownership are released after the last holder
+     * <p>The shared registration and file ownership are released after the last holder
      * closes; persisted files are not deleted. Metadata, copying, and lifecycle operations are
      * rejected after closing, and later listener-registration attempts return a no-op subscription.
      * {@link #data()} has no closed guard and must not be used after closing.
      *
-     * <p>Outside a config worker, this method waits for release. From a worker callback it queues
-     * release without waiting, so the operation currently running can finish.
-     * References previously returned to callers remain the callers' responsibility.
+     * <p>When a hook closes its own holder during an operation, cleanup happens after that
+     * operation finishes. References previously returned to callers remain the callers' responsibility.
      */
     @Override
     void close();

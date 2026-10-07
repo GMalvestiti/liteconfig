@@ -10,7 +10,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.BooleanSupplier;
@@ -97,16 +96,14 @@ public final class ClientConfigSync {
         });
     }
 
-    public static CompletableFuture<ClientSyncResult> receivePayload(ConfigSyncS2CPacket payload) {
-        return CompletableFuture.supplyAsync(() -> {
-            ClientSyncResult result = TRANSACTIONS.receive(payload);
+    public static ClientSyncResult receivePayload(ConfigSyncS2CPacket payload) {
+        ClientSyncResult result = TRANSACTIONS.receive(payload);
 
-            if (result.disconnectReason() != null) {
-                DISCONNECT_SCHEDULER.accept(result.disconnectReason());
-            }
+        if (result.disconnectReason() != null) {
+            DISCONNECT_SCHEDULER.accept(result.disconnectReason());
+        }
 
-            return result;
-        }, clientMainThreadExecutor());
+        return result;
     }
 
     public static void resetClientConnection() {

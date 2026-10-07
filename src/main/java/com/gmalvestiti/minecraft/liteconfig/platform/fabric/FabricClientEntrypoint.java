@@ -2,7 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.platform.fabric;
 
 //? if fabric {
 import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
@@ -26,9 +26,11 @@ public class FabricClientEntrypoint implements ClientModInitializer {
         });
 
         ClientPlayNetworking.registerGlobalReceiver(ConfigSyncS2CPacket.TYPE, (payload, context) -> {
-            if (ClientConfigSync.hasRemoteConnection()) {
-                ClientConfigSync.receivePayload(payload);
-            }
+            context.client().execute(() -> {
+                if (ClientConfigSync.hasRemoteConnection()) {
+                    ClientConfigSync.receivePayload(payload);
+                }
+            });
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register(
@@ -36,7 +38,7 @@ public class FabricClientEntrypoint implements ClientModInitializer {
     }
 
     private static void onClientStarted(Minecraft client) {
-        ConfigEventExecutors.setClientMainThread(client);
+        ConfigEventThreads.setClientMainThread(client);
 
         ClientConfigSync.setRemoteConnectionCheck(
             () -> !client.isLocalServer() && client.getConnection() != null);

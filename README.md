@@ -5,8 +5,8 @@ Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric a
 **Features:**
 * **Data layer:** Handles JSON5/TOML formats, paths, default values, atomic writes, and automatic corruption recovery.
 * **State Management:** Provides validated snapshots, deep copies, runtime updates, and custom state cloning.
+* **Thread-Safe Reads:** Read a config from any thread without locking or copying.
 * **Opt-In Network Sync:** Automatically synchronizes marked configs or individual fields from server to client.
-* **Async and Read-only:** Offers synchronous, asynchronous, or read-only options to match your threading model.
 * **Restart Guards:** Blocks runtime updates and defers synchronized changes for fields requiring a game restart.
 * **Custom Update API:** `update` and `updateAndSave` return an `UpdateResult` with acceptance status and validation violations.
 * **Failure Policies:** Granular control over read, write, and update errors, from graceful fallbacks to strict exceptions.
@@ -92,12 +92,11 @@ side = "BOTH"
 
 ## Quickstart
 
-The builder creates either a mutable or read-only holder. Every holder exposes synchronous methods
-for calling-thread work and asynchronous methods backed by the shared config worker:
+The builder creates either a mutable or read-only holder:
 
 | Builder call | Behavior | Best fit |
 |---|---|---|
-| `create()` | Allows synchronous and asynchronous changes | Regular runtime config |
+| `create()` | Allows loads and updates | Regular runtime config |
 | `readOnly().create()` | Refuses loads and updates | Config a mod reads but never changes |
 
 Declare the config class. Initialize persisted fields to their defaults and provide a public
@@ -350,11 +349,11 @@ public final class MyMod implements ModInitializer {
                 System.err.println(violation.id() + ": " + violation.message()));
         }
 
-        // Serialized update and save.
-        config.updateAndSaveAsync(state ->
+        // Update and save.
+        UpdateResult saved = config.updateAndSave(state ->
             state.spawnRange = new IntRange(2, 24)
-        ).thenAccept(update ->
-            System.out.println("Saved: " + update.accepted()));
+        );
+        System.out.println("Saved: " + saved.accepted());
         
         // Both update and updateAndSave broadcast synced values after acceptance.
 

@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ConfigFieldCallbacksTest {
 
     @Test
-    void testRecoversAndReleasesQueuedStatesAfterAnError() {
+    void testRecoversAfterAnErrorFromADirectCallback() {
         ErrorConfig.events.clear();
         ErrorConfig.fail = true;
         ConfigFieldCallbacks<ErrorConfig> callbacks = ConfigFieldCallbacks.resolve(
@@ -32,6 +32,43 @@ class ConfigFieldCallbacksTest {
         callbacks.enqueueChanged(second, state(3), false).run();
 
         assertEquals(List.of(3), ErrorConfig.events);
+    }
+
+    @Test
+    void testRunsCallbacksDirectlyOnTheCallingGameThread() {
+        DirectConfig.events.clear();
+        DirectConfig.gameThread = Thread.currentThread();
+        ConfigFieldCallbacks<DirectConfig> callbacks = ConfigFieldCallbacks.resolve(
+            DirectConfig.class, ConfigFieldPlan.of(DirectConfig.class), TestFixtures.SCOPE,
+            new ConfigFieldAccess(TestFixtures.SCOPE));
+        DirectConfig first = new DirectConfig();
+        DirectConfig second = new DirectConfig();
+        second.value = 2;
+
+        callbacks.enqueueChanged(first, second, false).run();
+        callbacks.enqueueSynced(second, first, () -> DirectConfig.events.add("after")).run();
+
+        assertEquals(List.of("2:false", "1:true", "after"), DirectConfig.events);
+    }
+
+    @Test
+    void testCloseSkipsPreviouslyCapturedAndLaterCallbacks() {
+        DirectConfig.events.clear();
+        ConfigFieldCallbacks<DirectConfig> callbacks = ConfigFieldCallbacks.resolve(
+            DirectConfig.class, ConfigFieldPlan.of(DirectConfig.class), TestFixtures.SCOPE,
+            new ConfigFieldAccess(TestFixtures.SCOPE));
+        DirectConfig first = new DirectConfig();
+        DirectConfig second = new DirectConfig();
+        second.value = 2;
+        Runnable notification = callbacks.enqueueChanged(first, second, false);
+
+        callbacks.close();
+        callbacks.close();
+        notification.run();
+        callbacks.enqueueChanged(first, second, false).run();
+        callbacks.enqueueSynced(first, second, () -> DirectConfig.events.add("after")).run();
+
+        assertEquals(List.of(), DirectConfig.events);
     }
 
     @Test
@@ -84,6 +121,20 @@ class ConfigFieldCallbacksTest {
 
         private void changed(int[] oldValue, int[] newValue, boolean fromSync) {
             events.add(newValue[1]);
+        }
+    }
+
+    static class DirectConfig {
+
+        static final List<String> events = new ArrayList<>();
+        static Thread gameThread;
+
+        @Entry(callback = "changed")
+        int value = 1;
+
+        private void changed(Integer oldValue, Integer newValue, boolean fromSync) {
+            org.junit.jupiter.api.Assertions.assertSame(gameThread, Thread.currentThread());
+            events.add(newValue + ":" + fromSync);
         }
     }
 }

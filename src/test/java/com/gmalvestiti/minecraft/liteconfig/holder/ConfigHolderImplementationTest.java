@@ -5,7 +5,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigSide;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigSubscription;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
@@ -24,9 +24,8 @@ import java.lang.reflect.Field;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Arrays;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +45,7 @@ class ConfigHolderImplementationTest {
 
     @BeforeEach
     void configureClientThread() {
-        ConfigEventExecutors.setClientMainThread(Runnable::run);
+        ConfigEventThreads.setClientMainThread(Runnable::run);
     }
 
     @Test
@@ -56,18 +55,6 @@ class ConfigHolderImplementationTest {
 
         holder.load();
         holder.save();
-
-        verify(scope).logInfo("Config load operation completed successfully");
-        verify(scope).logInfo("Config save operation completed successfully");
-    }
-
-    @Test
-    void testLogsCompletedLoadAndSaveOperationsAsynchronously(@TempDir Path tempDir) {
-        ConfigScope scope = spy(new ConfigScope("mod"));
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir, scope);
-
-        holder.loadAsync().join();
-        holder.saveAsync().join();
 
         verify(scope).logInfo("Config load operation completed successfully");
         verify(scope).logInfo("Config save operation completed successfully");
@@ -152,34 +139,33 @@ class ConfigHolderImplementationTest {
     }
 
     @Test
-    void testKeepsUpdateAndSaveAtomicAgainstSynchronousUpdates(@TempDir Path tempDir) throws Exception {
+    void testPersistsUpdateAndSaveBeforeNotifyingAndBeforeTheNextUpdate(@TempDir Path tempDir)
+        throws Exception {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder =
             holder(tempDir, new ConfigScope("mod"));
-        CountDownLatch updatePublished = new CountDownLatch(1);
-        CountDownLatch releaseSave = new CountDownLatch(1);
+        Thread gameThread = Thread.currentThread();
+        List<String> notifications = new ArrayList<>();
         holder.onUpdate(ConfigSide.CLIENT, state -> {
-            if (state.value == 2) {
-                updatePublished.countDown();
-                try {
-                    releaseSave.await();
-                } catch (InterruptedException failure) {
-                    Thread.currentThread().interrupt();
-                    throw new IllegalStateException(failure);
-                }
+            assertSame(gameThread, Thread.currentThread());
+            assertEquals(state.value, holder.data().value);
+            notifications.add("update-" + state.value);
+        });
+        holder.onSave(ConfigSide.CLIENT, state -> {
+            assertSame(gameThread, Thread.currentThread());
+            notifications.add("save-" + state.value);
+            try {
+                assertTrue(Files.readString(tempDir.resolve("with-extension.json5"))
+                    .contains("\"value\": " + state.value));
+            } catch (java.io.IOException failure) {
+                throw new AssertionError(failure);
             }
         });
 
-        CompletableFuture<?> saving = holder.updateAndSaveAsync(state -> state.value = 2);
-        assertTrue(updatePublished.await(5, TimeUnit.SECONDS));
-        CompletableFuture<Void> laterUpdate = CompletableFuture.runAsync(
-            () -> holder.update(state -> state.value = 3));
-        Thread.sleep(50);
-        assertFalse(laterUpdate.isDone(), "a synchronous update must queue behind updateAndSave");
+        holder.updateAndSave(state -> state.value = 2);
+        assertEquals(List.of("update-2", "save-2"), notifications);
+        holder.update(state -> state.value = 3);
 
-        releaseSave.countDown();
-        saving.get(5, TimeUnit.SECONDS);
-        laterUpdate.get(5, TimeUnit.SECONDS);
-
+        assertEquals(List.of("update-2", "save-2", "update-3"), notifications);
         assertEquals(3, holder.data().value);
         assertTrue(Files.readString(tempDir.resolve("with-extension.json5"))
             .contains("\"value\": 2"));
@@ -209,16 +195,20 @@ class ConfigHolderImplementationTest {
         assertSame(ConfigSubscription.NONE, holder.onUpdate(ConfigSide.CLIENT, state -> {}));
         assertSame(ConfigSubscription.NONE, holder.onLoad(ConfigSide.CLIENT, state -> {}));
         assertSame(ConfigSubscription.NONE, holder.onSave(ConfigSide.CLIENT, state -> {}));
-        assertTrue(holder.loadAsync().isCompletedExceptionally());
-        assertTrue(holder.saveAsync().isCompletedExceptionally());
-        assertTrue(holder.updateAsync(state -> {}).isCompletedExceptionally());
-        assertTrue(holder.updateAndSaveAsync(state -> {}).isCompletedExceptionally());
+        assertEquals(ConfigError.HOLDER_CLOSED,
+            assertThrows(LiteConfigException.class, holder::load).error());
+        assertEquals(ConfigError.HOLDER_CLOSED,
+            assertThrows(LiteConfigException.class, holder::save).error());
+        assertEquals(ConfigError.HOLDER_CLOSED,
+            assertThrows(LiteConfigException.class, () -> holder.update(state -> {})).error());
+        assertEquals(ConfigError.HOLDER_CLOSED,
+            assertThrows(LiteConfigException.class, () -> holder.updateAndSave(state -> {})).error());
     }
 
     @Test
     void testClosingDropsQueuedListenerStateBeforeGameThreadRuns(@TempDir Path tempDir) throws Exception {
         ArrayDeque<Runnable> gameThread = new ArrayDeque<>();
-        ConfigEventExecutors.setClientMainThread(gameThread::addLast);
+        ConfigEventThreads.setClientMainThread(gameThread::addLast);
         try {
             ConfigHolder<TestFixtures.ConfigWithExtension> holder =
                 holder(tempDir, new ConfigScope("mod"));
@@ -239,25 +229,29 @@ class ConfigHolderImplementationTest {
             assertTrue(((Collection<?>) field(notification, "pending")).isEmpty());
             queued.run();
         } finally {
-            ConfigEventExecutors.setClientMainThread(Runnable::run);
+            ConfigEventThreads.setClientMainThread(Runnable::run);
         }
     }
 
     @Test
-    void testClosingFromWorkerLetsAcceptedWorkFinishThenDropsReferences(@TempDir Path tempDir) throws Exception {
+    void testClosingInsideTheMutatorFinishesAcceptedWorkThenDropsReferences(@TempDir Path tempDir)
+        throws Exception {
         var registration = RegisteredConfigs.create(new ConfigSettings<>(
             TestFixtures.ConfigWithExtension.class, new ConfigScope("mod"), tempDir));
-        ConfigHolderImplementation<TestFixtures.ConfigWithExtension> workerHolder =
+        ConfigHolderImplementation<TestFixtures.ConfigWithExtension> closingHolder =
             new ConfigHolderImplementation<>(registration, false);
 
-        workerHolder.updateAsync(state -> {
+        assertTrue(closingHolder.update(state -> {
             state.value = 8;
-            workerHolder.close();
-        }).get(5, TimeUnit.SECONDS);
-        registration.tasks().submitTerminal(() -> {}).get(5, TimeUnit.SECONDS);
+            closingHolder.close();
+            assertEquals(1, closingHolder.data().value,
+                "close during an operation must retain the current state until it finishes");
+            assertEquals(ConfigError.HOLDER_CLOSED,
+                assertThrows(LiteConfigException.class, closingHolder::metadata).error());
+        }).accepted());
 
-        assertNull(field(workerHolder, "registration"));
-        assertNull(field(workerHolder, "state"));
+        assertNull(field(closingHolder, "registration"));
+        assertNull(field(closingHolder, "state"));
         assertEquals(8, registration.state().published().value);
     }
 

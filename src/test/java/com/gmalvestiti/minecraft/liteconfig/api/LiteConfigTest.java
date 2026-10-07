@@ -18,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletionException;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -55,16 +54,18 @@ class LiteConfigTest {
     }
 
     @Test
-    void testSupportsAsyncLifecycleOperations(@TempDir Path tempDir) {
+    void testLifecycleOperationsCompleteBeforeTheNextCall(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = LiteConfig.holder(TestFixtures.ConfigWithExtension.class)
             .modId("mod")
             .baseDir(tempDir.toString())
             .create();
 
-        holder.updateAsync(cfg -> cfg.value = 3).join();
-        holder.saveAsync().join();
-        holder.updateAsync(cfg -> cfg.value = 9).join();
-        holder.loadAsync().join();
+        holder.update(cfg -> cfg.value = 3);
+        assertEquals(3, holder.data().value);
+        holder.save();
+        holder.update(cfg -> cfg.value = 9);
+        assertEquals(9, holder.data().value);
+        holder.load();
 
         assertEquals(3, holder.data().value);
     }
@@ -99,54 +100,38 @@ class LiteConfigTest {
     void testReportsAMissingMutatorAsADefect(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
 
-        for (Executable blocking : List.<Executable>of(
+        for (Executable operation : List.<Executable>of(
+            () -> holder.update(null),
             () -> holder.updateAndSave(null))) {
-            assertEquals(ConfigError.UNEXPECTED_FAILURE, assertThrows(LiteConfigException.class, blocking).error());
-        }
-        for (Executable async : List.<Executable>of(
-            () -> holder.updateAsync(null).join(),
-            () -> holder.updateAndSaveAsync(null).join())) {
-            assertThrows(CompletionException.class, async);
+            assertEquals(ConfigError.UNEXPECTED_FAILURE, assertThrows(LiteConfigException.class, operation).error());
         }
     }
 
     @Test
-    void testRejectsSynchronousCallsFromTheConfigThread(@TempDir Path tempDir) {
+    void testRejectsNestedOperationsOnTheSameHolder(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
 
-        CompletionException wrapper = assertThrows(
-            CompletionException.class,
-            () -> holder.updateAsync(cfg -> holder.save()).join());
+        LiteConfigException failure = assertThrows(
+            LiteConfigException.class,
+            () -> holder.update(cfg -> holder.save()));
 
-        assertTrue(wrapper.getCause() instanceof LiteConfigException failure
-            && failure.error() == ConfigError.NESTED_CONFIG_OPERATION);
+        assertEquals(ConfigError.NESTED_CONFIG_OPERATION, failure.error());
+        assertEquals(1, holder.data().value);
     }
 
     @Test
-    void testRejectsNestedSchedulingSoAJoiningHookCannotDeadlockTheWorker(@TempDir Path tempDir) {
+    void testRejectsNestedOperationsAcrossHoldersSharingTheSameState(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ConfigWithExtension> second = holder(tempDir);
 
-        CompletionException wrapper = assertThrows(
-            CompletionException.class,
-            () -> holder.updateAsync(cfg -> holder.saveAsync().join()).join()
+        LiteConfigException failure = assertThrows(
+            LiteConfigException.class,
+            () -> holder.update(cfg -> second.update(state -> state.value = 9))
         );
 
-        assertTrue(wrapper.getCause() instanceof LiteConfigException failure
-            && failure.error() == ConfigError.UNEXPECTED_FAILURE);
-        assertTrue(causeChainOf(wrapper).stream().anyMatch(cause ->
-            cause instanceof LiteConfigException nested
-                && nested.error() == ConfigError.NESTED_CONFIG_OPERATION));
-    }
-
-    private static List<Throwable> causeChainOf(Throwable failure) {
-        List<Throwable> chain = new ArrayList<>();
-        for (Throwable current = failure; current != null; current = current.getCause()) {
-            chain.add(current);
-            if (current.getCause() == current) {
-                break;
-            }
-        }
-        return chain;
+        assertEquals(ConfigError.NESTED_CONFIG_OPERATION, failure.error());
+        assertEquals(1, holder.data().value);
+        assertEquals(1, second.data().value);
     }
 
     @Test
@@ -203,9 +188,7 @@ class LiteConfigTest {
 
         for (Supplier<UpdateResult> rejecting : List.<Supplier<UpdateResult>>of(
             () -> holder.update(cfg -> cfg.value = -1),
-            () -> holder.updateAndSave(cfg -> cfg.value = -1),
-            () -> holder.updateAsync(cfg -> cfg.value = -1).join(),
-            () -> holder.updateAndSaveAsync(cfg -> cfg.value = -1).join())) {
+            () -> holder.updateAndSave(cfg -> cfg.value = -1))) {
             UpdateResult result = rejecting.get();
             assertInstanceOf(UpdateResult.Rejected.class, result);
             List<Violation> rejected = result.violations();

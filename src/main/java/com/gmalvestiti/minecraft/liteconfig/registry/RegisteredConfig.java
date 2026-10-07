@@ -2,8 +2,6 @@ package com.gmalvestiti.minecraft.liteconfig.registry;
 
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigExecutors;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigTaskQueue;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEngine;
@@ -30,7 +28,6 @@ public record RegisteredConfig<T>(
     ConfigEventNotifier<T> notifier,
     ConfigExceptionHandler exceptionHandler,
     ConfigState<T> state,
-    ConfigTaskQueue tasks,
     ConfigPathResolver pathResolver
 ) {
 
@@ -78,7 +75,6 @@ public record RegisteredConfig<T>(
                 new ConfigEventNotifier<>(model.scope()),
                 exceptionHandler,
                 new ConfigState<>(stateCloner, model.scope(), initialStateOf(model, engine, exceptionHandler, guard)),
-                ConfigExecutors.newSerialQueue(),
                 pathResolver);
 
             afterCreation.accept(created);

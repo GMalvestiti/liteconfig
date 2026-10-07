@@ -198,10 +198,15 @@ public @interface Entry {
      *
      * <p>The callback runs only after a changed value has been validated and published. It runs for
      * successful explicit loads, updates, and server sync transitions, but not for the build-time
-     * load; {@code fromSync} is {@code true} only for server-supplied values. Callbacks run on the
-     * config worker performing the transition. Rejected updates and structurally unchanged values
-     * run nothing. A callback must not mutate the config object. Failures are logged like lifecycle
-     * listener failures and do not undo the state transition or prevent later callbacks.
+     * load; {@code fromSync} is {@code true} only for server-supplied values.
+     *
+     * <p>Callbacks run inline as part of the transition. Rejected updates and structurally unchanged
+     * values run nothing.
+     * A callback must not mutate the config object. Failures are logged like lifecycle listener
+     * failures and do not undo the state transition or prevent later callbacks.
+     *
+     * <p>Starting another mutation on the same registration, including through a different holder,
+     * is rejected while the transition's callbacks are running.
      *
      * @return the callback method name, or {@code ""} to disable the callback
      */

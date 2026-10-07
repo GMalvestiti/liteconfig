@@ -24,7 +24,7 @@ import java.util.function.Consumer;
  * choose {@link #readOnly()}, then finish with {@link #create()}:
  *
  * <ul>
- *   <li>{@link #create()} — a mutable holder with synchronous and asynchronous operations.</li>
+ *   <li>{@link #create()} — a mutable holder for loading, updating, and saving.</li>
  *   <li>{@code readOnly().create()} — a read-only handle that refuses mutation.</li>
  * </ul>
  *
@@ -256,9 +256,6 @@ public final class ConfigBuilder<T> {
 
     /**
      * Creates a holder using the configured access mode.
-     *
-     * <p>Synchronous methods wait for this config's serial worker lane, so failures still surface
-     * on the calling stack. Asynchronous methods return the queued work.
      *
      * <p>Building touches disk the first time this config is built. It resolves file paths,
      * rejects invalid config models, registers extension validators, and validates defaults;

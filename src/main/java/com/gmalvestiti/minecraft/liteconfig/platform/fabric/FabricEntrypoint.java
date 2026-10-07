@@ -2,7 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.platform.fabric;
 
 //? if fabric {
 import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
@@ -40,7 +40,7 @@ public class FabricEntrypoint implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STARTED.register(server -> {
             LiteConfigCommon.ACTIVE_SERVER = server;
-            ConfigEventExecutors.setServerMainThread(server);
+            ConfigEventThreads.setServerMainThread(server);
             ServerConfigSync.setServerMainThreadExecutor(server);
         });
 
@@ -49,7 +49,7 @@ public class FabricEntrypoint implements ModInitializer {
                 LiteConfigCommon.ACTIVE_SERVER = null;
             }
 
-            ConfigEventExecutors.clearServerMainThread(server);
+            ConfigEventThreads.clearServerMainThread(server);
             ServerConfigSync.clearServerMainThreadExecutor(server);
         });
 

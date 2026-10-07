@@ -109,14 +109,24 @@ public final class ConfigSyncRegistry {
     }
 
     private static void runOnMainThread(Runnable task) {
-        Executor executor = ServerConfigSync.serverMainThreadExecutor();
+        Executor server = ServerConfigSync.serverMainThreadExecutor();
 
-        if (executor == null) {
-            executor = ClientConfigSync.availableMainThreadExecutor();
+        if (server != null) {
+            server.execute(() -> {
+                if (ServerConfigSync.serverMainThreadExecutor() == server) {
+                    task.run();
+                }
+            });
+            return;
         }
 
-        if (executor != null) {
-            executor.execute(task);
+        Executor client = ClientConfigSync.availableMainThreadExecutor();
+        if (client != null) {
+            client.execute(() -> {
+                if (ClientConfigSync.availableMainThreadExecutor() == client) {
+                    task.run();
+                }
+            });
         }
     }
 }

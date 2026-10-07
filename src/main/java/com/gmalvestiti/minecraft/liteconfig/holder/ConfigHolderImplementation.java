@@ -6,8 +6,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.ConfigSide;
 import com.gmalvestiti.minecraft.liteconfig.api.UpdateResult;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigExecutors;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
 import com.gmalvestiti.minecraft.liteconfig.engine.ConfigSubscriptions;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
@@ -21,12 +20,9 @@ import com.gmalvestiti.minecraft.liteconfig.shared.ConfigOperation;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -45,6 +41,7 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
     private final boolean readOnly;
     private final List<ConfigSubscription> ownedSubscriptions = new CopyOnWriteArrayList<>();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private boolean operationInProgress;
 
     public ConfigHolderImplementation(RegisteredConfig<T> registration, boolean readOnly) {
         this.registration = Objects.requireNonNull(registration, "registration");
@@ -81,7 +78,14 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
 
     @Override
     public void load() {
-        await(loadAsync());
+        operate(() -> {
+            if (readOnly) {
+                exceptionHandler().reject(ConfigOperation.LOAD, unsupported(ConfigOperation.LOAD));
+            } else {
+                loadState();
+            }
+            return null;
+        });
     }
 
     private void loadState() {
@@ -93,7 +97,7 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
             });
 
             T loaded = read.valueOr(registration.engine()::initialize);
-            ConfigState.Transition<T> transition = state.writing(() -> state.replace(loaded));
+            ConfigState.Transition<T> transition = state.replace(loaded);
 
             if (read.completed()) {
                 registration.model().callbacks().enqueueChanged(
@@ -112,49 +116,41 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
 
     @Override
     public UpdateResult update(Consumer<T> mutator) {
-        return await(updateAsync(mutator));
+        return operate(() -> readOnly ? refuseUpdate() : updateState(mutator, false));
     }
 
     @Override
     public UpdateResult updateAndSave(Consumer<T> mutator) {
-        return await(updateAndSaveAsync(mutator));
+        return operate(() -> readOnly ? refuseUpdate() : updateState(mutator, true));
     }
 
     private UpdateResult updateState(Consumer<T> mutator, boolean save) {
-        ConfigOutcome<ConfigState.Transition<T>> attempt = state.writing(() -> {
-            ConfigOutcome<T> candidate = exceptionHandler().onUpdate(() -> {
-                Objects.requireNonNull(mutator, "mutator");
+        ConfigOutcome<T> candidate = exceptionHandler().onUpdate(() -> {
+            Objects.requireNonNull(mutator, "mutator");
 
-                T next = state.copyOfCanonical();
-                mutator.accept(next);
+            T next = state.copyOfCanonical();
+            mutator.accept(next);
 
-                registration.guard().enforceRestart(state.canonical(), next);
-                registration.guard().validate(next);
+            registration.guard().enforceRestart(state.canonical(), next);
+            registration.guard().validate(next);
 
-                return next;
-            });
-
-            if (candidate.degraded()) {
-                return ConfigOutcome.degraded(candidate.failure().orElseThrow());
-            }
-
-            T next = candidate.value().orElseThrow();
-            if (save) {
-                ConfigOutcome<Void> write = exceptionHandler().onWrite(
-                    () -> registration.engine().save(next));
-                if (write.degraded()) {
-                    return ConfigOutcome.degraded(write.failure().orElseThrow());
-                }
-            }
-
-            return ConfigOutcome.completed(state.replace(next));
+            return next;
         });
 
-        if (attempt.degraded()) {
-            return UpdateResult.rejected(attempt.violations());
+        if (candidate.degraded()) {
+            return UpdateResult.rejected(candidate.violations());
         }
 
-        ConfigState.Transition<T> transition = attempt.value().orElseThrow();
+        T next = candidate.value().orElseThrow();
+        if (save) {
+            ConfigOutcome<Void> write = exceptionHandler().onWrite(
+                () -> registration.engine().save(next));
+            if (write.degraded()) {
+                return UpdateResult.rejected(write.violations());
+            }
+        }
+
+        ConfigState.Transition<T> transition = state.replace(next);
         registration.model().callbacks().enqueueChanged(
             transition.before(), transition.after(), false).run();
         registration.notifier().notifyUpdated(transition.published());
@@ -169,7 +165,10 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
 
     @Override
     public void save() {
-        await(saveAsync());
+        operate(() -> {
+            saveState();
+            return null;
+        });
     }
 
     private void saveState() {
@@ -183,63 +182,6 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
         }
     }
 
-    @Override
-    public synchronized CompletableFuture<Void> loadAsync() {
-        if (closed.get()) {
-            return CompletableFuture.failedFuture(closedFailure());
-        }
-
-        if (readOnly) {
-            try {
-                exceptionHandler().reject(ConfigOperation.LOAD, unsupported(ConfigOperation.LOAD));
-                return CompletableFuture.completedFuture(null);
-            } catch (RuntimeException failure) {
-                return CompletableFuture.failedFuture(failure);
-            }
-        }
-
-        return submit(this::loadState);
-    }
-
-    @Override
-    public synchronized CompletableFuture<UpdateResult> updateAsync(Consumer<T> mutator) {
-        if (closed.get()) {
-            return CompletableFuture.failedFuture(closedFailure());
-        }
-
-        if (readOnly) {
-            try {
-                return CompletableFuture.completedFuture(refuseUpdate());
-            } catch (RuntimeException failure) {
-                return CompletableFuture.failedFuture(failure);
-            }
-        }
-
-        return submit(() -> updateState(mutator, false));
-    }
-
-    @Override
-    public synchronized CompletableFuture<UpdateResult> updateAndSaveAsync(Consumer<T> mutator) {
-        if (closed.get()) {
-            return CompletableFuture.failedFuture(closedFailure());
-        }
-
-        if (readOnly) {
-            try {
-                return CompletableFuture.completedFuture(refuseUpdate());
-            } catch (RuntimeException failure) {
-                return CompletableFuture.failedFuture(failure);
-            }
-        }
-
-        return submit(() -> updateState(mutator, true));
-    }
-
-    @Override
-    public CompletableFuture<Void> saveAsync() {
-        return submit(this::saveState);
-    }
-
     private UpdateResult refuseUpdate() {
         exceptionHandler().reject(ConfigOperation.UPDATE, unsupported(ConfigOperation.UPDATE));
         return UpdateResult.rejected(READ_ONLY_VIOLATIONS);
@@ -250,54 +192,21 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
             ConfigError.HOLDER_OPERATION_UNSUPPORTED, READ_ONLY, operation.displayName());
     }
 
-    private synchronized <V> CompletableFuture<V> submit(Supplier<V> task) {
-        if (closed.get()) {
-            return CompletableFuture.failedFuture(closedFailure());
+    private synchronized <V> V operate(Supplier<V> operation) {
+        ensureOpen();
+
+        if (operationInProgress) {
+            throw scope().exception(ConfigError.NESTED_CONFIG_OPERATION);
         }
 
-        if (ConfigExecutors.isWorkerThread()) {
-            return CompletableFuture.failedFuture(scope().exception(ConfigError.NESTED_CONFIG_OPERATION));
-        }
-
-        CompletableFuture<V> submitted = registration.tasks().submit(task);
-
-        return submitted.handle((value, failure) -> {
-            if (failure instanceof RejectedExecutionException
-                || failure instanceof CompletionException completion
-                    && completion.getCause() instanceof RejectedExecutionException) {
-                throw scope().exception(ConfigError.CONFIG_WORKER_STOPPED, failure);
-            }
-
-            if (failure != null) {
-                throw new CompletionException(failure);
-            }
-
-            return value;
-        });
-    }
-
-    private CompletableFuture<Void> submit(Runnable task) {
-        return submit(() -> {
-            task.run();
-            return null;
-        });
-    }
-
-    private static <V> V await(CompletableFuture<V> future) {
+        operationInProgress = true;
         try {
-            return future.join();
-        } catch (CompletionException wrapper) {
-            Throwable failure = wrapper.getCause();
-
-            if (failure instanceof RuntimeException runtime) {
-                throw runtime;
+            return state.writing(operation);
+        } finally {
+            operationInProgress = false;
+            if (closed.get()) {
+                release();
             }
-
-            if (failure instanceof Error error) {
-                throw error;
-            }
-
-            throw wrapper;
         }
     }
 
@@ -340,9 +249,9 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
 
         if (side == ConfigSide.BOTH) {
             ConfigSubscription client = subscribe(
-                listener, subscribe, ConfigEventExecutors.logicalThread(ConfigSide.CLIENT));
+                listener, subscribe, ConfigEventThreads.logicalThread(ConfigSide.CLIENT));
             ConfigSubscription server = subscribe(
-                listener, subscribe, ConfigEventExecutors.logicalThread(ConfigSide.SERVER));
+                listener, subscribe, ConfigEventThreads.logicalThread(ConfigSide.SERVER));
 
             return ConfigSubscriptions.managed(() -> {
                 client.close();
@@ -350,7 +259,7 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
             });
         }
 
-        return subscribe(listener, subscribe, ConfigEventExecutors.logicalThread(side));
+        return subscribe(listener, subscribe, ConfigEventThreads.logicalThread(side));
     }
 
     private synchronized ConfigSubscription subscribe(
@@ -375,42 +284,23 @@ public final class ConfigHolderImplementation<T> implements ConfigHolder<T> {
     }
 
     @Override
-    public void close() {
-        CompletableFuture<Void> release;
-        synchronized (this) {
-            if (!closed.compareAndSet(false, true)) {
-                return;
-            }
-
-            List.copyOf(ownedSubscriptions).forEach(ConfigSubscription::close);
-
-            Runnable cleanup = () -> {
-                try {
-                    ConfigRegistry.release(registration);
-                } finally {
-                    registration = null;
-                    state = null;
-                }
-            };
-
-            release = registration.tasks().submitTerminal(cleanup).handle((ignored, failure) -> {
-                if (failure instanceof RejectedExecutionException && registration != null) {
-                    cleanup.run();
-                } else if (failure != null) {
-                    throw new CompletionException(failure);
-                }
-                return null;
-            });
+    public synchronized void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
         }
 
-        if (!ConfigExecutors.isWorkerThread()) {
-            await(release);
-        } else {
-            release.whenComplete((ignored, failure) -> {
-                if (failure != null) {
-                    scope().logError("Failed to release config " + typeName, failure);
-                }
-            });
+        List.copyOf(ownedSubscriptions).forEach(ConfigSubscription::close);
+        if (!operationInProgress) {
+            release();
+        }
+    }
+
+    private void release() {
+        try {
+            ConfigRegistry.release(registration);
+        } finally {
+            registration = null;
+            state = null;
         }
     }
 

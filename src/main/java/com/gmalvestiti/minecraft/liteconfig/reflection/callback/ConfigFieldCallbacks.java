@@ -14,14 +14,14 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ConfigFieldCallbacks<T> {
 
     private final ConfigScope scope;
     private final ConfigFieldAccess fieldAccess;
     private final List<ConfigFieldCallback> callbacks;
-    private final CallbackQueue<T> notifications;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private ConfigFieldCallbacks(
         ConfigScope scope,
@@ -31,11 +31,6 @@ public final class ConfigFieldCallbacks<T> {
         this.scope = scope;
         this.fieldAccess = fieldAccess;
         this.callbacks = List.copyOf(callbacks);
-
-        this.notifications = new CallbackQueue<>(
-            new Object(),
-            this::invoke,
-            limit -> scope.exception(ConfigError.CHANGE_LISTENER_REENTRANCY_LIMIT, limit));
     }
 
     public static <T> ConfigFieldCallbacks<T> resolve(
@@ -50,21 +45,28 @@ public final class ConfigFieldCallbacks<T> {
     }
 
     public Runnable enqueueChanged(T oldState, T newState, boolean fromSync) {
-        return notifications.enqueue(new CallbackNotification<>(oldState, newState, fromSync));
+        return () -> {
+            if (!closed.get()) {
+                invoke(new CallbackNotification<>(oldState, newState, fromSync));
+            }
+        };
     }
 
     public void close() {
-        notifications.close();
+        closed.set(true);
     }
 
     public Runnable enqueueSynced(
         T oldState,
         T newState,
-        Executor executor,
         Runnable after
     ) {
-        return notifications.enqueue(
-            new CallbackNotification<>(oldState, newState, true), executor, after);
+        return () -> {
+            if (!closed.get()) {
+                invoke(new CallbackNotification<>(oldState, newState, true));
+                after.run();
+            }
+        };
     }
 
     private void invoke(CallbackNotification<T> notification) {

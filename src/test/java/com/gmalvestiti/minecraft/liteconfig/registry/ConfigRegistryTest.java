@@ -3,7 +3,6 @@ package com.gmalvestiti.minecraft.liteconfig.registry;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigHolder;
 import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigTaskQueue;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
@@ -19,13 +18,9 @@ import java.nio.file.Files;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -117,19 +112,18 @@ class ConfigRegistryTest {
     }
 
     @Test
-    void testFinalCloseStillReleasesWhenWorkerRejectsTerminalTask(@TempDir Path tempDir) throws Exception {
-        ConfigHolder<TestFixtures.SimpleConfig> holder = holder(tempDir);
-        RegisteredConfig<?> registration = (RegisteredConfig<?>) field(
-            holder.getClass(), holder, "registration");
-
-        Field backend = ConfigTaskQueue.class.getDeclaredField("backend");
-        backend.setAccessible(true);
-        backend.set(registration.tasks(), (Executor) task -> {
-            throw new RejectedExecutionException("worker stopped");
+    void testFinalCloseReleasesImmediatelyOnTheCallingGameThread(@TempDir Path tempDir) throws Exception {
+        Thread gameThread = Thread.currentThread();
+        AtomicInteger releases = new AtomicInteger();
+        ConfigRegistry.setLifecycleCallbacks(ignored -> {}, ignored -> {
+            assertSame(gameThread, Thread.currentThread());
+            releases.incrementAndGet();
         });
+        ConfigHolder<TestFixtures.SimpleConfig> holder = holder(tempDir);
 
         holder.close();
 
+        assertEquals(1, releases.get());
         assertTrue(((Map<?, ?>) field(ConfigRegistry.class, null, "REGISTRATIONS")).isEmpty());
         Object ownership = field(ConfigRegistry.class, null, "OWNERSHIP");
         assertTrue(((Map<?, ?>) field(ownership.getClass(), ownership, "owners")).isEmpty());
@@ -194,30 +188,48 @@ class ConfigRegistryTest {
         ConfigSettings<TestFixtures.ConfigWithExtension> second =
             settings(TestFixtures.ConfigWithExtension.class, "mod", tempDir);
         CountDownLatch hooksReady = new CountDownLatch(2);
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-
-        try {
-            Future<LiteConfigException> firstFailure = executor.submit(() -> assertThrows(
-                LiteConfigException.class,
-                () -> ConfigRegistry.register(first, ignored -> {
+        AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+        AtomicReference<Throwable> secondFailure = new AtomicReference<>();
+        Thread firstThread = new Thread(() -> {
+            try {
+                ConfigRegistry.register(first, ignored -> {
                     await(hooksReady);
                     ConfigRegistry.register(second, nested -> {});
-                })));
-            Future<LiteConfigException> secondFailure = executor.submit(() -> assertThrows(
-                LiteConfigException.class,
-                () -> ConfigRegistry.register(second, ignored -> {
+                });
+            } catch (Throwable failure) {
+                firstFailure.set(failure);
+            }
+        }, "registration-cycle-first");
+        Thread secondThread = new Thread(() -> {
+            try {
+                ConfigRegistry.register(second, ignored -> {
                     await(hooksReady);
                     ConfigRegistry.register(first, nested -> {});
-                })));
-
+                });
+            } catch (Throwable failure) {
+                secondFailure.set(failure);
+            }
+        }, "registration-cycle-second");
+        firstThread.setDaemon(true);
+        secondThread.setDaemon(true);
+        firstThread.start();
+        secondThread.start();
+        try {
+            firstThread.join(5000);
+            secondThread.join(5000);
+            assertTrue(!firstThread.isAlive() && !secondThread.isAlive(),
+                "registration cycles must fail rather than wait indefinitely");
+            assertTrue(firstFailure.get() instanceof LiteConfigException);
+            assertTrue(secondFailure.get() instanceof LiteConfigException);
             assertEquals(
                 ConfigError.REENTRANT_CONFIG_REGISTRATION,
-                firstFailure.get(5, TimeUnit.SECONDS).error());
+                ((LiteConfigException) firstFailure.get()).error());
             assertEquals(
                 ConfigError.REENTRANT_CONFIG_REGISTRATION,
-                secondFailure.get(5, TimeUnit.SECONDS).error());
+                ((LiteConfigException) secondFailure.get()).error());
         } finally {
-            executor.shutdownNow();
+            firstThread.interrupt();
+            secondThread.interrupt();
         }
     }
 

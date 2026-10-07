@@ -56,8 +56,6 @@ public enum ConfigError {
     MALFORMED_CONFIG_DATA("Malformed config data in %s"),
     /** Signals that storage cannot persist a config file. */
     IO_SAVE_FAILURE("Failed to save config to %s"),
-    /** Signals that the async worker rejects work during JVM shutdown. */
-    CONFIG_WORKER_STOPPED("Config worker is no longer accepting work; the JVM is shutting down"),
     /** Signals that a loaded or updated value violates the root's {@code validate} rules. */
     VALIDATION_FAILED("Validation failed for %s: %s"),
     /** Signals that an update tries to change a field declared {@code @Entry(restart = true)}. */
@@ -72,8 +70,6 @@ public enum ConfigError {
     EXTENSION_HOOK_FAILED("Config extension hook '%s' threw an exception: %s", true),
     /** Signals that a config lifecycle listener throws after an event is dispatched. */
     CHANGE_LISTENER_FAILED("Config change listener threw an exception: %s"),
-    /** Signals that callbacks keep publishing new callback-producing updates without terminating. */
-    CHANGE_LISTENER_REENTRANCY_LIMIT("Config callbacks exceeded the reentrant notification limit of %d", true),
     /** Signals that an {@code @Entry(callback = ...)} method has an invalid declaration. */
     INVALID_ENTRY_ON_SET_CALLBACK("Field %s in %s declares an invalid callback: %s", true),
     /** Signals that a field declares a constraint that no value could satisfy. */
@@ -96,8 +92,8 @@ public enum ConfigError {
     HOLDER_OPERATION_UNSUPPORTED("The %s config holder does not support '%s'"),
     /** Signals that an operation was attempted through a released holder handle. */
     HOLDER_CLOSED("Config holder for %s is closed"),
-    /** Signals that a config task tried to queue more work onto the worker running it. */
-    NESTED_CONFIG_OPERATION("Config operation scheduled from inside another config task; nested worker waits can deadlock", true),
+    /** Signals that a callback tries to mutate the registration whose operation is still running. */
+    NESTED_CONFIG_OPERATION("Config operation started while another operation on the same registration is in progress", true),
     /** Signals that a custom state cloner violates the isolation contract. */
     INVALID_STATE_COPY("State cloner for %s %s", true),
     /** Signals that a raw {@link RuntimeException} escapes internal code. */

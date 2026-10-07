@@ -12,31 +12,30 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.lang.ref.WeakReference;
 
 public final class ServerConfigSync {
 
     private static final AtomicLong NEXT_TRANSACTION_ID = new AtomicLong();
-    private static volatile Executor SERVER_MAIN_THREAD_EXECUTOR;
+    private static final AtomicReference<Executor> SERVER_MAIN_THREAD_EXECUTOR = new AtomicReference<>();
     private static volatile Consumer<List<ConfigSyncS2CPacket>> BROADCAST_SCHEDULER = ignored -> {};
     private static volatile Runnable MANIFEST_SCHEDULER = () -> {};
 
     private ServerConfigSync() {}
 
     public static void setServerMainThreadExecutor(Executor executor) {
-        SERVER_MAIN_THREAD_EXECUTOR = Objects.requireNonNull(executor, "executor");
+        SERVER_MAIN_THREAD_EXECUTOR.set(Objects.requireNonNull(executor, "executor"));
         ConfigSyncRegistry.activate();
     }
 
     public static void clearServerMainThreadExecutor(Executor executor) {
-        if (SERVER_MAIN_THREAD_EXECUTOR == executor) {
-            SERVER_MAIN_THREAD_EXECUTOR = null;
-        }
+        SERVER_MAIN_THREAD_EXECUTOR.compareAndSet(executor, null);
     }
 
     static Executor serverMainThreadExecutor() {
-        return SERVER_MAIN_THREAD_EXECUTOR;
+        return SERVER_MAIN_THREAD_EXECUTOR.get();
     }
 
     public static void setBroadcastScheduler(Consumer<List<ConfigSyncS2CPacket>> scheduler) {
@@ -48,9 +47,13 @@ public final class ServerConfigSync {
     }
 
     static void refreshManifest() {
-        Executor executor = SERVER_MAIN_THREAD_EXECUTOR;
+        Executor executor = SERVER_MAIN_THREAD_EXECUTOR.get();
         if (executor != null) {
-            executor.execute(() -> MANIFEST_SCHEDULER.run());
+            executor.execute(() -> {
+                if (SERVER_MAIN_THREAD_EXECUTOR.get() == executor) {
+                    MANIFEST_SCHEDULER.run();
+                }
+            });
         }
     }
 
@@ -106,7 +109,7 @@ public final class ServerConfigSync {
     }
 
     static void broadcast(SyncedConfig<?> synced) {
-        Executor executor = SERVER_MAIN_THREAD_EXECUTOR;
+        Executor executor = SERVER_MAIN_THREAD_EXECUTOR.get();
 
         if (executor == null) {
             return;
@@ -114,6 +117,10 @@ public final class ServerConfigSync {
 
         WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
         executor.execute(() -> {
+            if (SERVER_MAIN_THREAD_EXECUTOR.get() != executor) {
+                return;
+            }
+
             SyncedConfig<?> current = reference.get();
             if (current == null || ConfigSyncRegistry.get(current.id()) != current) {
                 return;

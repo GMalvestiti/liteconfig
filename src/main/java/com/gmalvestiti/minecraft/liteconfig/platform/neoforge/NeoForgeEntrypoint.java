@@ -2,7 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.platform.neoforge;
 
 //? if neoforge {
 /*import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
-import com.gmalvestiti.minecraft.liteconfig.async.ConfigEventExecutors;
+import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
@@ -87,7 +87,7 @@ public class NeoForgeEntrypoint {
 
     private static void onServerStarted(ServerStartedEvent event) {
         LiteConfigCommon.ACTIVE_SERVER = event.getServer();
-        ConfigEventExecutors.setServerMainThread(event.getServer());
+        ConfigEventThreads.setServerMainThread(event.getServer());
         ServerConfigSync.setServerMainThreadExecutor(event.getServer());
     }
 
@@ -96,7 +96,7 @@ public class NeoForgeEntrypoint {
             LiteConfigCommon.ACTIVE_SERVER = null;
         }
 
-        ConfigEventExecutors.clearServerMainThread(event.getServer());
+        ConfigEventThreads.clearServerMainThread(event.getServer());
         ServerConfigSync.clearServerMainThreadExecutor(event.getServer());
     }
 

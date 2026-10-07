@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.engine.state;
 
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
+import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 
 import java.util.Objects;
@@ -32,9 +33,9 @@ import java.util.function.Supplier;
  * });
  * }</pre>
  *
- * <p>A registration is shared by every holder of that config, and a synced config is written from
- * the client main thread that delivers a payload while an ASYNC holder writes from the config
- * worker, so more than one thread genuinely does reach these methods.
+ * <p>Every holder of a config shares this state. Nested mutation is rejected while an operation
+ * or its callbacks are running. The volatile snapshot safely publishes read-only values to
+ * readers on other threads.
  *
  * @param <T> config root type stored by this state
  */
@@ -44,6 +45,7 @@ public final class ConfigState<T> {
     private final ConfigScope scope;
     private volatile Snapshot<T> snapshot;
     private final Object writeLock = new Object();
+    private boolean operationInProgress;
 
     public ConfigState(StateCloner<T> cloner, ConfigScope scope, T initial) {
         this.cloner = Objects.requireNonNull(cloner, "cloner");
@@ -77,7 +79,17 @@ public final class ConfigState<T> {
      */
     public <R> R writing(Supplier<R> work) {
         synchronized (writeLock) {
-            return work.get();
+            if (operationInProgress) {
+                throw scope.exception(ConfigError.NESTED_CONFIG_OPERATION);
+            }
+
+            operationInProgress = true;
+
+            try {
+                return work.get();
+            } finally {
+                operationInProgress = false;
+            }
         }
     }
 

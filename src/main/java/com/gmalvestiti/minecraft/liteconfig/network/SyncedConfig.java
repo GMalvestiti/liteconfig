@@ -282,11 +282,13 @@ final class SyncedConfig<T> {
             return;
         }
 
-        this.config.model().callbacks().enqueueSynced(
-            applied.beforeState(),
-            applied.afterState(),
-            ClientConfigSync.clientMainThreadExecutor(),
-            () -> this.config.notifier().notifySynced(applied.publishedState())).run();
+        this.config.state().writing(() -> {
+            this.config.model().callbacks().enqueueSynced(
+                applied.beforeState(),
+                applied.afterState(),
+                () -> this.config.notifier().notifySynced(applied.publishedState())).run();
+            return null;
+        });
     }
 
     private void decodeInto(ConfigBytes payload, ConfigFieldAccess fieldAccess, T candidate) {

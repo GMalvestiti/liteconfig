@@ -31,16 +31,11 @@ import java.nio.file.Path;
 import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -117,7 +112,8 @@ class ConfigSyncRegistryTest {
 
         assertTrue(ServerConfigSync.beginHandshake().isEmpty());
 
-        ServerConfigSync.setManifestScheduler(() -> {});
+        ServerConfigSync.setManifestScheduler(() -> {
+        });
         LiteConfig.holder(TestFixtures.SyncedConfig.class)
             .modId("mod")
             .baseDir(tempDir)
@@ -325,7 +321,7 @@ class ConfigSyncRegistryTest {
     @Test
     void testUnknownPayloadIsIgnored() {
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of("unknown", ConfigBytes.of(new byte[] {1})))).join();
+            new ConfigSyncS2CPacket(true, Map.of("unknown", ConfigBytes.of(new byte[]{1}))));
 
         assertTrue(result.completed());
         assertFalse(result.restartRequired());
@@ -355,18 +351,18 @@ class ConfigSyncRegistryTest {
         });
         ConfigBytes secondPayload = encodeWith(second, candidate -> candidate.enabled = false);
 
-        CompletableFuture<ClientSyncResult> firstCompletion =
+        ClientSyncResult firstCompletion =
             ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(
-                7, false, Map.of(first.model().syncId(), firstPayload)));
+                new ConfigSyncS2CPacket(
+                    7, false, Map.of(first.model().syncId(), firstPayload)));
 
-        assertFalse(firstCompletion.join().completed());
+        assertFalse(firstCompletion.completed());
         assertEquals("hello", first.state().published().greeting);
         assertTrue(second.state().published().enabled);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
-                7, true, Map.of(second.model().syncId(), secondPayload))).join();
+                7, true, Map.of(second.model().syncId(), secondPayload)));
 
         assertTrue(result.completed());
         assertTrue(result.restartRequired());
@@ -384,13 +380,12 @@ class ConfigSyncRegistryTest {
         ConfigBytes firstPayload = encodeWith(first, candidate -> candidate.enabled = false);
 
         ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-            8, false, Map.of(first.model().syncId(), firstPayload))).join();
+            8, false, Map.of(first.model().syncId(), firstPayload)));
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
                 8,
                 true,
-                Map.of(second.model().syncId(), ConfigBytes.of(new byte[] {1, 2, 3}))))
-            .join();
+                Map.of(second.model().syncId(), ConfigBytes.of(new byte[]{1, 2, 3}))));
 
         assertTrue(result.completed());
         assertEquals(ClientConfigSync.SYNC_FAILED, result.disconnectReason());
@@ -409,17 +404,17 @@ class ConfigSyncRegistryTest {
             second, candidate -> candidate.greeting = "broadcast");
 
         ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-            10, false, Map.of(first.model().syncId(), firstPayload))).join();
+            10, false, Map.of(first.model().syncId(), firstPayload)));
         ClientSyncResult broadcast = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
-                11, true, Map.of(second.model().syncId(), secondPayload))).join();
+                11, true, Map.of(second.model().syncId(), secondPayload)));
 
         assertTrue(broadcast.completed());
         assertEquals("broadcast", second.state().published().greeting);
         assertTrue(first.state().published().enabled);
 
         ClientSyncResult initial = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(10, true, Map.of())).join();
+            new ConfigSyncS2CPacket(10, true, Map.of()));
 
         assertTrue(initial.completed());
         assertFalse(first.state().published().enabled);
@@ -429,12 +424,12 @@ class ConfigSyncRegistryTest {
     void testRejectsTransactionsWithTooManyPackets() {
         for (int packet = 0; packet < ConfigSyncProtocol.MAX_TRANSACTION_PACKETS; packet++) {
             ClientSyncResult pending = ClientConfigSync.receivePayload(
-                new ConfigSyncS2CPacket(12, false, Map.of())).join();
+                new ConfigSyncS2CPacket(12, false, Map.of()));
             assertFalse(pending.completed());
         }
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(12, true, Map.of())).join();
+            new ConfigSyncS2CPacket(12, true, Map.of()));
 
         assertTrue(result.completed());
         assertEquals(ClientConfigSync.SYNC_FAILED, result.disconnectReason());
@@ -461,7 +456,7 @@ class ConfigSyncRegistryTest {
         configs.put(second.model().syncId(), secondPayload);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(14, true, configs)).join();
+            new ConfigSyncS2CPacket(14, true, configs));
 
         assertNull(result.disconnectReason());
         assertFalse(first.state().published().enabled);
@@ -492,7 +487,7 @@ class ConfigSyncRegistryTest {
         configs.put(second.model().syncId(), secondPayload);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(15, true, configs)).join();
+            new ConfigSyncS2CPacket(15, true, configs));
 
         assertEquals(ClientConfigSync.SYNC_FAILED, result.disconnectReason());
         assertTrue(first.state().published().enabled);
@@ -510,15 +505,16 @@ class ConfigSyncRegistryTest {
         Deque<Runnable> actions = new ArrayDeque<>();
         ClientConfigSync.setClientMainThreadExecutor(actions::addLast);
 
-        CompletableFuture<ClientSyncResult> queued =
+        List<ClientSyncResult> results = new ArrayList<>();
+        actions.addLast(() -> results.add(
             ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-                13, true, Map.of(config.model().syncId(), payload)));
+                13, true, Map.of(config.model().syncId(), payload)))));
         ClientConfigSync.resetClientConnection();
         while (!actions.isEmpty()) {
             actions.removeFirst().run();
         }
 
-        ClientSyncResult result = queued.join();
+        ClientSyncResult result = results.getFirst();
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
         assertFalse(config.state().published().enabled);
@@ -529,12 +525,12 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         ConfigBytes payload = encodeWith(config, candidate -> candidate.enabled = false);
         ClientSyncResult buffered = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(13, false, Map.of(config.model().syncId(), payload))).join();
+            new ConfigSyncS2CPacket(13, false, Map.of(config.model().syncId(), payload)));
         assertFalse(buffered.completed());
 
         ClientConfigSync.resetClientConnection();
         ClientSyncResult completed = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(13, true, Map.of())).join();
+            new ConfigSyncS2CPacket(13, true, Map.of()));
 
         assertTrue(completed.completed());
         assertNull(completed.disconnectReason());
@@ -547,24 +543,18 @@ class ConfigSyncRegistryTest {
             syncId(OtherSyncedConfig.class), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
 
         List<String> threads = new ArrayList<>();
-        CountDownLatch requested = new CountDownLatch(1);
         ClientConfigSync.setRequestScheduler(ignored -> {
             threads.add(Thread.currentThread().getName());
-            requested.countDown();
         });
 
-        ExecutorService clientThread = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "test-client-main"));
-        try {
-            ConfigRegistryIsolation.beforeGameStartup();
-            ClientConfigSync.setClientMainThreadExecutor(clientThread);
-            CompletableFuture.runAsync(() -> create(OtherSyncedConfig.class, tempDir)).join();
-            assertTrue(requested.await(5, java.util.concurrent.TimeUnit.SECONDS));
-        } finally {
-            clientThread.shutdownNow();
-        }
+        Deque<Runnable> actions = new ArrayDeque<>();
+        ConfigRegistryIsolation.beforeGameStartup();
+        ClientConfigSync.setClientMainThreadExecutor(actions::addLast);
+        create(OtherSyncedConfig.class, tempDir);
+        assertTrue(threads.isEmpty());
+        drain(actions);
 
-        assertEquals(List.of("test-client-main"), threads);
+        assertEquals(List.of(Thread.currentThread().getName()), threads);
     }
 
     @Test
@@ -602,7 +592,7 @@ class ConfigSyncRegistryTest {
         ConfigBytes payload = encodeWith(config, candidate -> candidate.enabled = false);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload))).join();
+            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload)));
 
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
@@ -718,28 +708,15 @@ class ConfigSyncRegistryTest {
         ConfigRegistryIsolation.beforeGameStartup();
         RegisteredConfig<NetworkThreadConfig> config = createNetworkThreadConfig(tempDir);
 
-        CountDownLatch encoding = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        NetworkThreadConfig.BEFORE_ENCODE = () -> {
-            encoding.countDown();
-            await(release);
-        };
-
-        ExecutorService client = Executors.newSingleThreadExecutor();
+        NetworkThreadConfig.BEFORE_ENCODE = () -> ConfigRegistry.release(config);
         try {
-            ClientConfigSync.setClientMainThreadExecutor(client);
-            assertTrue(encoding.await(5, TimeUnit.SECONDS));
-
-            ConfigRegistry.release(config);
-            release.countDown();
-            client.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            ClientConfigSync.setClientMainThreadExecutor(Runnable::run);
 
             assertNull(ConfigSyncRegistry.get(config.model().syncId()));
             assertTrue(ServerConfigSync.beginHandshake().isEmpty());
         } finally {
-            release.countDown();
-            NetworkThreadConfig.BEFORE_ENCODE = () -> {};
-            client.shutdownNow();
+            NetworkThreadConfig.BEFORE_ENCODE = () -> {
+            };
         }
     }
 
@@ -749,28 +726,18 @@ class ConfigSyncRegistryTest {
         ConfigBytes payload = encodeWith(config, candidate -> candidate.value = new ThreadValue(7));
         NetworkThreadConfig.EVENTS.clear();
 
-        ExecutorService client = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "test-client-main"));
-        try {
-            ConfigRegistryIsolation.beforeGameStartup();
-            ClientConfigSync.setClientMainThreadExecutor(client);
-            ClientSyncResult result = ClientConfigSync.receivePayload(
-                new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload)))
-                .get(5, TimeUnit.SECONDS);
-            client.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        ClientSyncResult result = ClientConfigSync.receivePayload(
+            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload)));
 
-            assertNull(result.disconnectReason());
-            assertEquals(Set.of("decode", "validate", "save", "encode", "callback"),
-                NetworkThreadConfig.EVENTS.stream().map(event -> event.split(":")[0])
-                    .collect(java.util.stream.Collectors.toSet()));
-            assertTrue(NetworkThreadConfig.EVENTS.stream().allMatch(
-                event -> event.endsWith(":test-client-main")));
+        assertNull(result.disconnectReason());
+        assertEquals(Set.of("decode", "validate", "save", "encode", "callback"),
+            NetworkThreadConfig.EVENTS.stream().map(event -> event.split(":")[0])
+                .collect(java.util.stream.Collectors.toSet()));
+        assertTrue(NetworkThreadConfig.EVENTS.stream().allMatch(
+            event -> event.endsWith(":" + Thread.currentThread().getName())));
 
-            assertEquals(new ThreadValue(7), config.state().published().value);
-            assertTrue(Files.readString(tempDir.resolve("network-thread.json5")).contains("7"));
-        } finally {
-            client.shutdownNow();
-        }
+        assertEquals(new ThreadValue(7), config.state().published().value);
+        assertTrue(Files.readString(tempDir.resolve("network-thread.json5")).contains("7"));
     }
 
     @Test
@@ -778,31 +745,23 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<NetworkThreadConfig> config = createNetworkThreadConfig(tempDir);
         NetworkThreadConfig.EVENTS.clear();
 
-        CompletableFuture<Void> sent = new CompletableFuture<>();
         ServerConfigSync.setBroadcastScheduler(packets -> {
             NetworkThreadConfig.record("send");
-            sent.complete(null);
         });
 
-        ExecutorService server = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "test-server-main"));
-        try {
-            ServerConfigSync.setServerMainThreadExecutor(server);
+        Deque<Runnable> actions = new ArrayDeque<>();
+        ServerConfigSync.setServerMainThreadExecutor(actions::addLast);
+        drain(actions);
 
-            CompletableFuture.runAsync(() -> {
-                NetworkThreadConfig changed = config.state().copyOfCanonical();
-                changed.value = new ThreadValue(9);
-                config.state().replace(changed);
-                config.notifier().notifyUpdated(config.state().published());
-            }).get(5, TimeUnit.SECONDS);
-            sent.get(5, TimeUnit.SECONDS);
+        NetworkThreadConfig changed = config.state().copyOfCanonical();
+        changed.value = new ThreadValue(9);
+        config.state().replace(changed);
+        config.notifier().notifyUpdated(config.state().published());
+        assertTrue(NetworkThreadConfig.EVENTS.isEmpty());
+        drain(actions);
 
-            assertEquals(List.of("encode:test-server-main", "send:test-server-main"),
-                NetworkThreadConfig.EVENTS);
-        } finally {
-            ServerConfigSync.clearServerMainThreadExecutor(server);
-            server.shutdownNow();
-        }
+        String thread = Thread.currentThread().getName();
+        assertEquals(List.of("encode:" + thread, "send:" + thread), NetworkThreadConfig.EVENTS);
     }
 
     @Test
@@ -811,28 +770,21 @@ class ConfigSyncRegistryTest {
         ConfigBytes payload = encodeWith(config, candidate -> candidate.poolSize = 32);
 
         List<String> threads = new ArrayList<>();
-        CompletableFuture<String> disconnected = new CompletableFuture<>();
+        List<String> disconnects = new ArrayList<>();
         ClientConfigSync.setDisconnectScheduler(reason -> {
             threads.add(Thread.currentThread().getName());
-            disconnected.complete(reason);
+            disconnects.add(reason);
         });
 
-        ExecutorService client = Executors.newSingleThreadExecutor(
-            task -> new Thread(task, "test-client-main"));
-        try {
-            ConfigRegistryIsolation.beforeGameStartup();
-            ClientConfigSync.setClientMainThreadExecutor(client);
-            ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-                true, Map.of(config.model().syncId(), payload)));
+        ClientSyncResult result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
+            true, Map.of(config.model().syncId(), payload)));
 
-            assertEquals(ClientConfigSync.RESTART_REQUIRED, disconnected.get(5, TimeUnit.SECONDS));
-            assertEquals(List.of("test-client-main"), threads);
+        assertEquals(ClientConfigSync.RESTART_REQUIRED, result.disconnectReason());
+        assertEquals(List.of(ClientConfigSync.RESTART_REQUIRED), disconnects);
+        assertEquals(List.of(Thread.currentThread().getName()), threads);
 
-            assertEquals(8, config.state().published().poolSize);
-            assertTrue(Files.readString(tempDir.resolve("restart-sync.json5")).contains("32"));
-        } finally {
-            client.shutdownNow();
-        }
+        assertEquals(8, config.state().published().poolSize);
+        assertTrue(Files.readString(tempDir.resolve("restart-sync.json5")).contains("32"));
     }
 
     @Test
@@ -857,6 +809,60 @@ class ConfigSyncRegistryTest {
         }
 
         assertEquals(1, broadcasts.size());
+    }
+
+    @Test
+    void testStoppedServerDropsQueuedBroadcastAndManifest(@TempDir Path tempDir) {
+        RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
+        Deque<Runnable> actions = new ArrayDeque<>();
+        Executor server = actions::addLast;
+        List<ConfigSyncS2CPacket> broadcasts = new ArrayList<>();
+        AtomicInteger manifests = new AtomicInteger();
+        ServerConfigSync.setBroadcastScheduler(broadcasts::addAll);
+        ServerConfigSync.setManifestScheduler(manifests::incrementAndGet);
+        ServerConfigSync.setServerMainThreadExecutor(server);
+        drain(actions);
+        manifests.set(0);
+
+        OtherSyncedConfig changed = config.state().copyOfCanonical();
+        changed.enabled = false;
+        config.state().replace(changed);
+        config.notifier().notifyUpdated(config.state().published());
+        ServerConfigSync.refreshManifest();
+        ServerConfigSync.clearServerMainThreadExecutor(server);
+        drain(actions);
+
+        assertTrue(broadcasts.isEmpty());
+        assertEquals(0, manifests.get());
+    }
+
+    @Test
+    void testOldServerCleanupPreservesNewBinding() {
+        Executor previous = Runnable::run;
+        Executor current = action -> action.run();
+        ServerConfigSync.setServerMainThreadExecutor(previous);
+        ServerConfigSync.setServerMainThreadExecutor(current);
+
+        ServerConfigSync.clearServerMainThreadExecutor(previous);
+
+        assertTrue(ServerConfigSync.serverMainThreadExecutor() == current);
+    }
+
+    @Test
+    void testQueuedRequestDropsReleasedRegistration(@TempDir Path tempDir) {
+        RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
+            Map.of(config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
+        Deque<Runnable> actions = new ArrayDeque<>();
+        List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();
+        ClientConfigSync.setClientMainThreadExecutor(actions::addLast);
+        ClientConfigSync.setRequestScheduler(requests::add);
+        ClientConfigSync.requestIfChanged(ConfigSyncRegistry.get(config.model().syncId()));
+
+        ConfigRegistry.release(config);
+        drain(actions);
+
+        assertTrue(requests.isEmpty());
     }
 
     private static RegisteredConfig<NetworkThreadConfig> createNetworkThreadConfig(Path directory) {
@@ -891,7 +897,7 @@ class ConfigSyncRegistryTest {
 
     private static boolean receive(Map<String, ConfigBytes> configs) {
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, configs)).join();
+            new ConfigSyncS2CPacket(true, configs));
         assertTrue(result.completed());
         assertEquals(result.restartRequired() ? ClientConfigSync.RESTART_REQUIRED : null,
             result.disconnectReason());
@@ -908,12 +914,9 @@ class ConfigSyncRegistryTest {
         return payload;
     }
 
-    private static void await(CountDownLatch latch) {
-        try {
-            latch.await();
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new AssertionError(failure);
+    private static void drain(Deque<Runnable> actions) {
+        while (!actions.isEmpty()) {
+            actions.removeFirst().run();
         }
     }
 
@@ -931,12 +934,14 @@ class ConfigSyncRegistryTest {
         public boolean enabled = true;
     }
 
-    public record ThreadValue(int value) {}
+    public record ThreadValue(int value) {
+    }
 
     @Config(name = "network-thread", sync = true)
     public static class NetworkThreadConfig implements ConfigExtension {
-        private static final List<String> EVENTS = Collections.synchronizedList(new ArrayList<>());
-        private static Runnable BEFORE_ENCODE = () -> {};
+        private static final List<String> EVENTS = new ArrayList<>();
+        private static Runnable BEFORE_ENCODE = () -> {
+        };
 
         @Entry(callback = "changed")
         public ThreadValue value = new ThreadValue(1);

@@ -26,8 +26,9 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
  * }</pre>
  *
  * <p>An implementation must preserve every persisted field: dropping one during copy corrupts
- * live state just as surely as dropping it during serialization. It must also be safe to call
- * from the config worker, while other threads may read the published state.
+ * live state just as surely as dropping it during serialization. Copies may be requested from
+ * any thread, so implementations must support concurrent reads without modifying the source
+ * or relying on mutable shared state.
  *
  * <p>An implementation must declare a no-argument constructor that LiteConfig can access
  * reflectively. It is instantiated once for each config registration.
