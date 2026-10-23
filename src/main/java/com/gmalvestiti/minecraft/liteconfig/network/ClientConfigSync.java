@@ -1,156 +1,166 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
+import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
+import com.gmalvestiti.minecraft.liteconfig.platform.CommonClientPlatform;
+import com.gmalvestiti.minecraft.liteconfig.platform.ConnectionType;
+import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
-import java.lang.ref.WeakReference;
 
 import static com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncProtocol.ENTRIES_PER_PACKET;
 
 public final class ClientConfigSync {
 
-    public static final String RESTART_REQUIRED = "liteconfig.disconnect.restart_required";
-    public static final String SYNC_FAILED = "liteconfig.disconnect.sync_failed";
-
-    private static final Map<String, ConfigBytes> SERVER_HASHES = new HashMap<>();
+    private static final Map<String, ConfigBytes> SERVER_CONFIG_HASHES = new HashMap<>();
     private static final ConfigSyncTransactions TRANSACTIONS =
         new ConfigSyncTransactions(ConfigSyncRegistry::get);
 
-    private static volatile Executor CLIENT_MAIN_THREAD_EXECUTOR;
-    private static volatile BooleanSupplier REMOTE_CONNECTION_CHECK = () -> false;
-    private static volatile Consumer<ConfigSyncRequestC2SPacket> REQUEST_SCHEDULER = ignored -> {};
-    private static volatile Consumer<String> DISCONNECT_SCHEDULER = ignored -> {};
+    private static volatile CommonClientPlatform PLATFORM;
 
     private ClientConfigSync() {}
 
-    public static void setClientMainThreadExecutor(Executor executor) {
-        CLIENT_MAIN_THREAD_EXECUTOR = Objects.requireNonNull(executor, "executor");
+    public static void bind(CommonClientPlatform platform) {
+        PLATFORM = Objects.requireNonNull(platform, "platform");
         ConfigSyncRegistry.activate();
     }
 
     static Executor availableMainThreadExecutor() {
-        return CLIENT_MAIN_THREAD_EXECUTOR;
-    }
-
-    static Executor clientMainThreadExecutor() {
-        Executor executor = CLIENT_MAIN_THREAD_EXECUTOR;
-        if (executor == null) {
-            throw new RejectedExecutionException("The client main-thread executor is not available");
-        }
-        return executor;
-    }
-
-    public static void setRemoteConnectionCheck(BooleanSupplier check) {
-        REMOTE_CONNECTION_CHECK = Objects.requireNonNull(check, "check");
+        return PLATFORM;
     }
 
     public static boolean hasRemoteConnection() {
-        return CLIENT_MAIN_THREAD_EXECUTOR != null && REMOTE_CONNECTION_CHECK.getAsBoolean();
+        CommonClientPlatform platform = PLATFORM;
+        return platform != null && platform.connectionType() == ConnectionType.REMOTE;
     }
 
-    public static void setRequestScheduler(Consumer<ConfigSyncRequestC2SPacket> scheduler) {
-        REQUEST_SCHEDULER = Objects.requireNonNull(scheduler, "scheduler");
+    public static boolean isCurrentConnection(Object connection) {
+        CommonClientPlatform platform = PLATFORM;
+        return connection != null && platform != null
+            && platform.connectionToken() == connection && platform.connectionType() == ConnectionType.REMOTE;
     }
 
-    public static void setDisconnectScheduler(Consumer<String> scheduler) {
-        DISCONNECT_SCHEDULER = Objects.requireNonNull(scheduler, "scheduler");
+    static String connectionIdentity() {
+        CommonClientPlatform platform = Objects.requireNonNull(PLATFORM, "client platform");
+        return Objects.requireNonNull(platform.connectionIdentity(), "connection identity");
     }
 
     public static void receiveHandshake(ConfigSyncHandshakeS2CPacket handshake) {
-        clientMainThreadExecutor().execute(() -> {
-            if (handshake.hashes().isEmpty()) {
-                return;
-            }
-
-            List<String> requested = new ArrayList<>();
+        try {
             for (Map.Entry<String, ConfigBytes> entry : handshake.hashes().entrySet()) {
-
-                if (!SERVER_HASHES.containsKey(entry.getKey())
-                    && SERVER_HASHES.size() == ConfigSyncProtocol.MAX_MANIFEST_ENTRIES) {
-
-                    SERVER_HASHES.clear();
-                    DISCONNECT_SCHEDULER.accept(SYNC_FAILED);
-                    return;
+                if (!SERVER_CONFIG_HASHES.containsKey(entry.getKey())
+                    && SERVER_CONFIG_HASHES.size() == ConfigSyncProtocol.MAX_MANIFEST_ENTRIES) {
+                    throw new IllegalArgumentException("Config sync manifest exceeds connection entry limit");
                 }
 
-                SERVER_HASHES.put(entry.getKey(), entry.getValue());
-                SyncedConfig<?> synced = ConfigSyncRegistry.get(entry.getKey());
-
-                if (synced != null && synced.differsFrom(entry.getValue())) {
-                    requested.add(entry.getKey());
-                }
+                SERVER_CONFIG_HASHES.put(entry.getKey(), entry.getValue());
             }
 
-            request(requested);
-        });
+            synchronize(handshake.hashes());
+        } catch (RuntimeException failure) {
+            rejectHandshake(failure);
+        }
     }
 
     public static ClientSyncResult receivePayload(ConfigSyncS2CPacket payload) {
         ClientSyncResult result = TRANSACTIONS.receive(payload);
 
         if (result.disconnectReason() != null) {
-            DISCONNECT_SCHEDULER.accept(result.disconnectReason());
+            disconnect(result.disconnectReason());
         }
 
         return result;
     }
 
     public static void resetClientConnection() {
-        Runnable clear = () -> {
-            SERVER_HASHES.clear();
-            TRANSACTIONS.clear();
-        };
-
-        Executor executor = CLIENT_MAIN_THREAD_EXECUTOR;
-
-        if (executor == null) {
-            clear.run();
-            return;
-        }
-
-        executor.execute(clear);
+        SERVER_CONFIG_HASHES.clear();
+        TRANSACTIONS.clear();
+        ConfigSyncRegistry.values().forEach(SyncedConfig::clearRemote);
     }
 
-    static void requestIfChanged(SyncedConfig<?> synced) {
-        Executor executor = CLIENT_MAIN_THREAD_EXECUTOR;
+    static void requestIfAdvertised(SyncedConfig<?> synced) {
+        ConfigBytes hash = SERVER_CONFIG_HASHES.get(synced.id());
 
-        if (executor == null) {
-            return;
+        if (hash != null) {
+            try {
+                synchronize(Map.of(synced.id(), hash));
+            } catch (RuntimeException failure) {
+                rejectHandshake(failure);
+            }
+        }
+    }
+
+    private static void synchronize(Map<String, ConfigBytes> hashes) {
+        Map<String, ConfigBytes> matching = new LinkedHashMap<>();
+        List<String> requested = new ArrayList<>();
+
+        int matchingBytes = 0;
+        for (Map.Entry<String, ConfigBytes> entry : hashes.entrySet()) {
+
+            SyncedConfig<?> synced = ConfigSyncRegistry.get(entry.getKey());
+            if (synced == null) {
+                continue;
+            }
+
+            ConfigBytes payload = synced.payloadMatching(entry.getValue());
+
+            if (payload == null) {
+                requested.add(entry.getKey());
+            } else {
+                matchingBytes += payload.size();
+
+                if (matchingBytes > ConfigSyncProtocol.MAX_TRANSACTION_BYTES) {
+                    throw new IllegalArgumentException("Cached config sync exceeds transaction byte limit");
+                }
+
+                matching.put(entry.getKey(), payload);
+            }
         }
 
-        WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
-        executor.execute(() -> {
-            SyncedConfig<?> current = reference.get();
-            if (current == null || ConfigSyncRegistry.get(current.id()) != current) {
+        if (!matching.isEmpty()) {
+            ClientSyncResult result = TRANSACTIONS.receiveCached(matching);
+
+            if (result.disconnectReason() != null) {
+                disconnect(result.disconnectReason());
                 return;
             }
+        }
 
-            ConfigBytes serverHash = SERVER_HASHES.get(current.id());
+        request(requested);
+    }
 
-            if (serverHash != null && current.differsFrom(serverHash)) {
-                request(List.of(current.id()));
-            }
-        });
+    private static void rejectHandshake(RuntimeException failure) {
+        SERVER_CONFIG_HASHES.clear();
+        TRANSACTIONS.clear();
+        LiteConfigCommon.error("Failed to process config sync manifest", failure);
+        disconnect(TranslationKey.SYNC_FAILED);
     }
 
     private static void request(List<String> configIds) {
         for (int start = 0; start < configIds.size(); start += ENTRIES_PER_PACKET) {
-
             int end = Math.min(configIds.size(), start + ENTRIES_PER_PACKET);
 
-            REQUEST_SCHEDULER.accept(new ConfigSyncRequestC2SPacket(
-                new LinkedHashSet<>(configIds.subList(start, end))));
+            CommonClientPlatform platform = PLATFORM;
+            if (platform != null) {
+                platform.request(new ConfigSyncRequestC2SPacket(
+                    new LinkedHashSet<>(configIds.subList(start, end))));
+            }
+        }
+    }
+
+    private static void disconnect(TranslationKey reason) {
+        CommonClientPlatform platform = PLATFORM;
+        if (platform != null) {
+            platform.disconnect(reason);
         }
     }
 }

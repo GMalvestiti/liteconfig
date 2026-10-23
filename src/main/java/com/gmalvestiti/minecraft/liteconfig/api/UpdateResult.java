@@ -33,7 +33,7 @@ import java.util.Objects;
 public sealed interface UpdateResult {
 
     /**
-     * Returns the result used when the candidate was validated and published.
+     * Returns the result used when the candidate was validated and accepted.
      *
      * @return the shared {@link Published} instance; never {@code null}
      */
@@ -54,7 +54,7 @@ public sealed interface UpdateResult {
     }
 
     /**
-     * Reports whether the candidate reached the published state.
+     * Reports whether the candidate was accepted, including any deferred restart selections.
      *
      * @return {@code true} for {@link Published}, {@code false} for {@link Rejected}
      */
@@ -70,7 +70,9 @@ public sealed interface UpdateResult {
     List<Violation> violations();
 
     /**
-     * Signals that the candidate passed validation and became the published state.
+     * Signals that the candidate passed validation and its effective state was published.
+     * Restart-only changes remain available through {@link ConfigHolder#pending()} until their
+     * ownership scope restarts; acceptance does not mean those fields are active.
      *
      * <p>Carries no data, so a single instance is reused; obtain it through
      * {@link UpdateResult#published()}.

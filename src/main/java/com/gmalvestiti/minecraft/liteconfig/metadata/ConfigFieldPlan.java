@@ -88,34 +88,24 @@ public final class ConfigFieldPlan {
         private final Map<Class<?>, List<DeclaredConfig.Property>> byType = new HashMap<>();
         private final Set<Field> descendable = new HashSet<>();
         private final Set<Field> inspected = new HashSet<>();
-        private final Set<Class<?>> warmed = new HashSet<>();
         private final Set<Field> inaccessible = new HashSet<>();
         private final Set<Field> finalFields = new HashSet<>();
 
         private void warm(Class<?> type) {
-            if (!warmed.add(type)) {
+            if (byType.containsKey(type)) {
                 return;
             }
 
-            for (DeclaredConfig.Property property : properties(type)) {
+            List<DeclaredConfig.Property> properties = DeclaredConfig.of(type).properties();
+            byType.put(type, properties);
+            inaccessible.addAll(PersistedFields.inaccessible(type));
+            finalFields.addAll(PersistedFields.finalFields(type));
+
+            for (DeclaredConfig.Property property : properties) {
                 if (isDescendable(property)) {
                     warm(property.type());
                 }
             }
-        }
-
-        private List<DeclaredConfig.Property> properties(Class<?> type) {
-            return byType.computeIfAbsent(type, this::propertiesOf);
-        }
-
-        private List<DeclaredConfig.Property> propertiesOf(Class<?> type) {
-            inaccessible.addAll(PersistedFields.inaccessible(type));
-            finalFields.addAll(PersistedFields.finalFields(type));
-
-            List<DeclaredConfig.Property> properties = List.copyOf(DeclaredConfig.of(type).properties());
-            properties.forEach(this::isDescendable);
-
-            return properties;
         }
 
         private boolean isDescendable(DeclaredConfig.Property property) {

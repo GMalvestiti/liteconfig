@@ -13,7 +13,7 @@ import com.google.gson.JsonElement;
 import java.lang.reflect.Field;
 import java.lang.ref.WeakReference;
 
-public final class ConfigBinder {
+public final class ConfigSerialization {
 
     private static final ExclusionStrategy CONFIG_IGNORE = new ExclusionStrategy() {
 
@@ -28,9 +28,10 @@ public final class ConfigBinder {
         }
     };
 
-    private static volatile WeakReference<Bound> bound = new WeakReference<>(null);
 
-    private ConfigBinder() {}
+    private static volatile Bound bound;
+
+    private ConfigSerialization() {}
 
     public static String propertyNameOf(Field field) {
         Entry entry = field.getAnnotation(Entry.class);
@@ -54,10 +55,14 @@ public final class ConfigBinder {
         ConfigCodecRegistry codecs = LiteConfig.codecs();
 
         int generation = codecs.generation();
-        Bound currentBound = bound.get();
+        Bound currentBound = bound;
 
         if (currentBound != null && currentBound.generation() == generation) {
-            return currentBound.gson();
+            Gson current = currentBound.gson().get();
+
+            if (current != null) {
+                return current;
+            }
         }
 
         return bind(codecs);
@@ -66,24 +71,29 @@ public final class ConfigBinder {
     private static synchronized Gson bind(ConfigCodecRegistry codecs) {
         int generation = codecs.generation();
 
-        Bound currentBound = bound.get();
+        Bound currentBound = bound;
 
         if (currentBound != null && currentBound.generation() == generation) {
-            return currentBound.gson();
+            Gson current = currentBound.gson().get();
+
+            if (current != null) {
+                return current;
+            }
         }
 
-        Gson gson = codecs.configure(new GsonBuilder())
-            .setFieldNamingStrategy(ConfigBinder::propertyNameOf)
+        Gson gson = codecs.configure(new GsonBuilder()
+                .registerTypeAdapterFactory(new ConfigTypeAdapterFactory()))
+            .setFieldNamingStrategy(ConfigSerialization::propertyNameOf)
             .addSerializationExclusionStrategy(CONFIG_IGNORE)
             .addDeserializationExclusionStrategy(CONFIG_IGNORE)
             .disableHtmlEscaping()
             .serializeNulls()
             .create();
 
-        bound = new WeakReference<>(new Bound(generation, gson));
+        bound = new Bound(generation, new WeakReference<>(gson));
 
         return gson;
     }
 
-    private record Bound(int generation, Gson gson) {}
+    private record Bound(int generation, WeakReference<Gson> gson) {}
 }

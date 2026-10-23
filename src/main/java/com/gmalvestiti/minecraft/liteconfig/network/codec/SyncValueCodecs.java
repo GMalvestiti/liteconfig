@@ -8,6 +8,8 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.Array;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -52,6 +54,17 @@ public final class SyncValueCodecs {
             return Optional.of(new Resolved(
                 NullableValueCodec.wrap(rawType, builtIn),
                 "builtin:" + rawType.getTypeName()));
+        }
+
+        Type component = declaredType instanceof GenericArrayType array
+            ? array.getGenericComponentType()
+            : rawType.isArray() ? rawType.getComponentType() : null;
+        if (component != null) {
+            return strategy(component).map(element -> new Resolved(
+                NullableValueCodec.wrap(rawType,
+                    ArrayValueCodecs.array(rawTypeOf(component), element.codec(),
+                        element.schema().startsWith("registered:"))),
+                "array<" + element.schema() + '>'));
         }
 
         if (!(declaredType instanceof ParameterizedType parameterized)) {
@@ -100,6 +113,10 @@ public final class SyncValueCodecs {
     }
 
     private static Class<?> rawTypeOf(Type type) {
+        if (type instanceof GenericArrayType array) {
+            return Array.newInstance(rawTypeOf(array.getGenericComponentType()), 0).getClass();
+        }
+
         if (type instanceof Class<?> rawType) {
             return rawType;
         }

@@ -2,8 +2,10 @@ package com.gmalvestiti.minecraft.liteconfig.network;
 
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
+import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
-import com.gmalvestiti.minecraft.liteconfig.api.ConfigSubscription;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
@@ -13,6 +15,8 @@ import com.gmalvestiti.minecraft.liteconfig.network.codec.SyncValueCodecs;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 import com.gmalvestiti.minecraft.liteconfig.shared.PropertyPath;
+import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
+import com.gmalvestiti.minecraft.liteconfig.storage.ConfigStorage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
@@ -30,16 +34,21 @@ final class SyncedConfig<T> {
     private static final HashFunction SHA_256 = Hashing.sha256();
 
     private final RegisteredConfig<T> config;
+    private final RestartSyncPolicy restartSyncPolicy;
     private List<SyncedValue> values;
     private boolean carriesRestartValues;
     private long schema;
     private Snapshot cachedSnapshot;
     private T snapshotState;
     private ConfigBytes broadcastHash;
-    private List<ConfigSubscription> broadcastSubscriptions = List.of();
+    private RestartSyncStore restartStore;
+    private String restartConnectionId;
 
     private SyncedConfig(RegisteredConfig<T> config) {
         this.config = config;
+        Config declaration = config.model().type().getAnnotation(Config.class);
+        this.restartSyncPolicy = declaration == null
+            ? RestartSyncPolicy.DEFER : declaration.restartSyncPolicy();
     }
 
     static <T> SyncedConfig<T> of(RegisteredConfig<T> config) {
@@ -74,7 +83,7 @@ final class SyncedConfig<T> {
         this.values = List.copyOf(values);
 
         this.carriesRestartValues = values.stream().anyMatch(SyncedValue::restart);
-        this.schema = schemaOf(this.config, values);
+        this.schema = schemaOf(this.config, values, this.restartSyncPolicy);
         this.snapshotState = this.config.state().published();
         this.cachedSnapshot = snapshot(this.snapshotState);
         this.broadcastHash = this.cachedSnapshot.hash();
@@ -88,8 +97,14 @@ final class SyncedConfig<T> {
         return this.config == registration;
     }
 
-    synchronized boolean ready() {
-        return this.cachedSnapshot != null;
+    boolean ready() {
+        synchronized (this.config.state().operationLock()) {
+            return this.cachedSnapshot != null;
+        }
+    }
+
+    boolean locallyActive() {
+        return config.isLocallyWritable() && !config.state().remoteActive();
     }
 
     private Snapshot snapshot(T state) {
@@ -97,33 +112,43 @@ final class SyncedConfig<T> {
         return new Snapshot(ConfigBytes.trusted(data), ConfigBytes.trusted(hash(data)));
     }
 
-    synchronized boolean differsFrom(ConfigBytes hash) {
-        return !cachedSnapshot().hash().equals(hash);
+    Snapshot cachedSnapshot() {
+        synchronized (this.config.state().operationLock()) {
+            initialize();
+
+            T state = this.config.state().published();
+
+            if (this.snapshotState != state) {
+                this.cachedSnapshot = snapshot(state);
+                this.snapshotState = state;
+            }
+
+            return this.cachedSnapshot;
+        }
     }
 
-    synchronized Snapshot cachedSnapshot() {
-        initialize();
+    Snapshot changedSnapshot() {
+        synchronized (this.config.state().operationLock()) {
+            Snapshot snapshot = cachedSnapshot();
 
-        T state = this.config.state().published();
+            if (this.broadcastHash.equals(snapshot.hash())) {
+                return null;
+            }
 
-        if (this.snapshotState != state) {
-            this.cachedSnapshot = snapshot(state);
-            this.snapshotState = state;
+            this.broadcastHash = snapshot.hash();
+
+            return snapshot;
         }
-
-        return this.cachedSnapshot;
     }
 
-    synchronized Snapshot changedSnapshot() {
-        Snapshot snapshot = cachedSnapshot();
-
-        if (this.broadcastHash.equals(snapshot.hash())) {
-            return null;
+    ConfigBytes payloadMatching(ConfigBytes expectedHash) {
+        Snapshot local = cachedSnapshot();
+        if (local.hash().equals(expectedHash)) {
+            return local.data();
         }
-
-        this.broadcastHash = snapshot.hash();
-
-        return snapshot;
+        ConfigBytes persisted = restartStore().read();
+        return compatibleRestartCache(persisted)
+            && ConfigBytes.trusted(hash(persisted.bytes())).equals(expectedHash) ? persisted : null;
     }
 
     private byte[] encode(T state) {
@@ -174,121 +199,162 @@ final class SyncedConfig<T> {
         cachedSnapshot();
         ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
 
-        return this.config.state().writing(() -> {
+        return this.config.writing(() -> {
             T current = this.config.state().canonical();
-            T candidate = this.config.state().copyOfCanonical();
+            T candidate = this.config.state().copyOfLocal();
 
             decodeInto(payload, fieldAccess, candidate);
 
+            this.config.guard().normalize(candidate);
             this.config.guard().validate(candidate);
-            boolean restartRequired = changesRestartValues(fieldAccess, current, candidate);
 
-            return new Prepared<>(this, current, candidate, restartRequired);
+            T active = this.config.state().copyOf(candidate);
+
+            if (this.config.pathResolver().type() != ConfigType.WORLD || this.config.state().remoteActive()) {
+                this.config.guard().carryOverRestart(current, active);
+            }
+
+            this.config.guard().validate(active);
+            boolean restartRequired = changesRestartValues(fieldAccess, active, candidate);
+
+            return new Prepared<>(this, current, candidate, active, restartRequired,
+                this.config.state().checkpoint(), restartStore(), payload);
         });
     }
 
+    private RestartSyncStore restartStore() {
+        String connectionId = ClientConfigSync.connectionIdentity();
+
+        if (restartStore == null || !connectionId.equals(restartConnectionId)) {
+            restartStore = new RestartSyncStore(
+                config.pathResolver().baseDirectory(), config.model().scope(), id(), connectionId);
+            restartConnectionId = connectionId;
+        }
+
+        return restartStore;
+    }
+
+    private boolean compatibleRestartCache(ConfigBytes bytes) {
+        if (bytes == null) {
+            return false;
+        }
+
+        ByteBuf buffer = bytes.readBuffer();
+        try {
+            if (buffer.readableBytes() >= Long.BYTES && buffer.readLong() == schema) {
+                return true;
+            }
+            config.model().scope().logInfo("Ignoring restart-sync cache with an obsolete schema for " + id());
+            return false;
+        } finally {
+            buffer.release();
+        }
+    }
+
     private boolean rollbackCommitted(Prepared<T> prepared) {
-        return this.config.state().writing(() -> {
-            if (this.config.state().canonical() != prepared.candidate) {
+        return this.config.writing(() -> {
+            if (this.config.state().canonical() != prepared.active) {
                 return false;
             }
 
-            if (!this.config.exceptionHandler().onWrite(
-                () -> this.config.engine().save(prepared.before)).completed()) {
-                return false;
-            }
-
-            this.config.state().replace(prepared.before);
-            synchronized (this) {
-                this.broadcastHash = this.cachedSnapshot().hash();
-            }
-
+            this.config.state().restore(prepared.beforeSnapshot);
+            this.broadcastHash = this.cachedSnapshot().hash();
             prepared.applied = null;
+
             return true;
         });
     }
 
-    private boolean commit(Prepared<T> prepared) {
-        Applied<T> applied = commitState(prepared);
+    private boolean commit(Prepared<T> prepared, RestartSyncStore.Transaction caches) {
+        return this.config.writing(() -> {
+            if (this.config.state().canonical() != prepared.before) {
+                return false;
+            }
 
-        if (applied == null) {
-            return false;
-        }
+            if (!this.config.exceptionHandler().onWrite(() -> {
+                caches.stage(prepared.store, prepared.payload);
 
-        prepared.applied = applied;
-        return true;
-    }
+                if (this.config.pathResolver().type() == ConfigType.SERVER && carriesRestartValues
+                    && (prepared.restartRequired || this.config.state().pending().isPresent())) {
 
-    private Applied<T> commitState(Prepared<T> prepared) {
-        return this.config.state().writing(() -> {
-            if (this.config.state().canonical() != prepared.before
-                || !this.config.exceptionHandler()
-                    .onWrite(() -> this.config.engine().save(prepared.candidate))
-                    .completed()) {
+                    T local = this.config.engine().restartFileState(this.config.declaredDefaults());
+                    this.config.guard().normalize(local);
 
-                return null;
+                    if (!changesRestartValues(this.config.model().fieldAccess(), local, prepared.candidate)) {
+                        return;
+                    }
+
+                    copySyncedRestart(prepared.candidate, local);
+                    this.config.guard().normalize(local);
+                    this.config.guard().validate(local);
+
+                    ConfigStorage.PreparedWrite file = this.config.engine().prepareRestartWrite(local, saved -> {
+                        copySyncedRestart(prepared.candidate, saved);
+
+                        this.config.guard().normalize(saved);
+                        this.config.guard().validate(saved);
+
+                        if (changesRestartValues(this.config.model().fieldAccess(), saved, prepared.candidate)) {
+                            throw this.config.model().scope().exception(
+                                ConfigError.SYNC_APPLY_FAILED, id(), "normalization changed persisted restart selections");
+                        }
+                    });
+                    file.stage(caches);
+                }
+            }).completed()) {
+                return false;
             }
 
             try {
-                return publish(prepared);
+                prepared.applied = publish(prepared);
+                return true;
             } catch (RuntimeException | Error failure) {
                 restorePublished(prepared);
-                this.config.exceptionHandler().onWrite(() -> this.config.engine().save(prepared.before));
                 throw failure;
             }
         });
     }
 
-    private Applied<T> publish(Prepared<T> prepared) {
-        if (this.config.state().canonical() != prepared.before) {
-            throw this.config.model().scope().exception(ConfigError.SYNC_APPLY_FAILED, id(), "config changed during sync");
-        }
+    private void copySyncedRestart(T source, T target) {
+        T isolated = this.config.state().copyOf(source);
+        ConfigFieldAccess access = this.config.model().fieldAccess();
 
-        if (prepared.restartRequired) {
-            this.config.guard().carryOverRestart(prepared.before, prepared.candidate);
+        for (SyncedValue value : values) {
+            if (value.restart()) {
+                value.write(access, target, value.read(access, isolated));
+            }
         }
+    }
 
+    private ConfigState.Transition<T> publish(Prepared<T> prepared) {
         ConfigBytes beforeHash = cachedSnapshot().hash();
-        ConfigState.Transition<T> transition = this.config.state().replace(prepared.candidate);
+        ConfigState.Transition<T> transition = this.config.state().replaceRemote(
+            prepared.active, prepared.restartRequired ? prepared.candidate : null,
+            this.config.pathResolver().restartPathForConfig(this.config.model().type()));
 
-        boolean publishedChanged;
-        synchronized (this) {
-            Snapshot updated = cachedSnapshot();
-            publishedChanged = !beforeHash.equals(updated.hash());
-            this.broadcastHash = updated.hash();
-        }
+        Snapshot updated = cachedSnapshot();
+        prepared.publishedChanged = !beforeHash.equals(updated.hash());
+        this.broadcastHash = updated.hash();
 
-        return new Applied<>(
-            transition.before(),
-            transition.after(),
-            transition.published(),
-            publishedChanged);
+        return transition;
     }
 
     private void restorePublished(Prepared<T> prepared) {
-        if (this.config.state().canonical() != prepared.candidate) {
+        if (this.config.state().canonical() != prepared.active) {
             return;
         }
 
-        this.config.state().replace(prepared.before);
+        this.config.state().restore(prepared.beforeSnapshot);
 
-        synchronized (this) {
-            this.broadcastHash = cachedSnapshot().hash();
-        }
+        this.broadcastHash = cachedSnapshot().hash();
     }
 
-    private void dispatch(Applied<T> applied) {
-        if (!applied.publishedChanged()) {
-            return;
-        }
-
-        this.config.state().writing(() -> {
-            this.config.model().callbacks().enqueueSynced(
-                applied.beforeState(),
-                applied.afterState(),
-                () -> this.config.notifier().notifySynced(applied.publishedState())).run();
-            return null;
-        });
+    private void dispatch(ConfigState.Transition<T> applied) {
+        this.config.writingWithCallbacks(callbacks -> callbacks.enqueue(
+            this.config.model().listeners().enqueueSynced(
+                applied.before(),
+                applied.after(),
+                () -> this.config.syncNotifier().notifyClientSync(applied.published()))));
     }
 
     private void decodeInto(ConfigBytes payload, ConfigFieldAccess fieldAccess, T candidate) {
@@ -359,16 +425,34 @@ final class SyncedConfig<T> {
         }
     }
 
-    void addBroadcastListener(Runnable broadcast) {
-        close();
-        this.broadcastSubscriptions = List.of(
-            this.config.notifier().addUpdateListener(state -> broadcast.run(), Runnable::run),
-            this.config.notifier().addLoadListener(state -> broadcast.run(), Runnable::run));
+    void registerLocalChangeBroadcast() {
+        this.config.syncNotifier().setLocalChangeListener(
+            this, () -> ServerConfigSync.scheduleBroadcast(this));
     }
 
     void close() {
-        this.broadcastSubscriptions.forEach(ConfigSubscription::close);
-        this.broadcastSubscriptions = List.of();
+        this.config.syncNotifier().clearLocalChangeListener(this);
+    }
+
+    void clearRemote() {
+        this.config.writingWithCallbacks(callbacks -> {
+            if (this.config.state().remoteActive()) {
+                ConfigBytes before = cachedSnapshot().hash();
+
+                ConfigState.Transition<T> transition = this.config.pathResolver().type() == ConfigType.WORLD
+                    ? this.config.state().replaceLocal(this.config.state().copyOfLocal(), null, null)
+                    : this.config.state().clearRemote();
+
+                Snapshot restored = cachedSnapshot();
+                this.broadcastHash = restored.hash();
+
+                if (!before.equals(restored.hash())) {
+                    callbacks.enqueue(this.config.model().listeners().enqueueChanged(
+                        transition.before(), transition.after(), true));
+                    callbacks.enqueue(() -> this.config.syncNotifier().notifyClientSync(transition.published()));
+                }
+            }
+        });
     }
 
     private boolean changesRestartValues(ConfigFieldAccess fieldAccess, T before, T after) {
@@ -388,13 +472,23 @@ final class SyncedConfig<T> {
 
     /**
      * Fingerprints what this build puts on the wire: which values, in which order, as which type.
-     * Anything that would change how a payload is read changes this too.
+     * Restart policy is included so a mismatched client cannot silently defer a required restart.
      */
-    private static long schemaOf(RegisteredConfig<?> config, List<SyncedValue> values) {
+    private static long schemaOf(
+        RegisteredConfig<?> config, List<SyncedValue> values, RestartSyncPolicy restartSyncPolicy
+    ) {
         StringBuilder shape = new StringBuilder()
             .append(ConfigSyncProtocol.VERSION)
             .append('|')
-            .append(config.model().typeName());
+            .append(config.model().typeName())
+            .append('|')
+            .append(config.pathResolver().type())
+            .append('|')
+            .append(restartSyncPolicy);
+
+        if (config.pathResolver().type() == ConfigType.WORLD) {
+            shape.append("|world-session-restart");
+        }
 
         for (SyncedValue value : values) {
             shape.append('|')
@@ -402,7 +496,9 @@ final class SyncedConfig<T> {
                 .append(':')
                 .append(value.type().getTypeName())
                 .append(':')
-                .append(value.schema());
+                .append(value.schema())
+                .append(':')
+                .append(value.restart());
         }
 
         return SHA_256.hashString(shape, StandardCharsets.UTF_8).asLong();
@@ -463,29 +559,41 @@ final class SyncedConfig<T> {
         private final SyncedConfig<T> owner;
         private final T before;
         private final T candidate;
+        private final T active;
         private final boolean restartRequired;
-        private Applied<T> applied;
+        private final ConfigState.Saved<T> beforeSnapshot;
+        private final RestartSyncStore store;
+        private final ConfigBytes payload;
+        private ConfigState.Transition<T> applied;
+        private boolean publishedChanged;
 
         private Prepared(
             SyncedConfig<T> owner,
             T before,
             T candidate,
-            boolean restartRequired
+            T active,
+            boolean restartRequired,
+            ConfigState.Saved<T> beforeSnapshot,
+            RestartSyncStore store,
+            ConfigBytes payload
         ) {
             this.owner = owner;
             this.before = before;
             this.candidate = candidate;
+            this.active = active;
             this.restartRequired = restartRequired;
+            this.beforeSnapshot = beforeSnapshot;
+            this.store = store;
+            this.payload = payload;
         }
 
-        boolean commitDeferred() {
-            return owner.commit(this);
+        boolean commitDeferred(RestartSyncStore.Transaction caches) {
+            return owner.commit(this, caches);
         }
 
         void dispatch() {
-            Applied<T> committed = applied;
-            if (committed != null) {
-                owner.dispatch(committed);
+            if (publishedChanged) {
+                owner.dispatch(applied);
             }
         }
 
@@ -496,12 +604,13 @@ final class SyncedConfig<T> {
         boolean restartRequired() {
             return restartRequired;
         }
-    }
 
-    private record Applied<T>(
-        T beforeState,
-        T afterState,
-        T publishedState,
-        boolean publishedChanged
-    ) {}
+        TranslationKey disconnectReason() {
+            if (!restartRequired || owner.restartSyncPolicy != RestartSyncPolicy.DISCONNECT) {
+                return null;
+            }
+            return owner.config.pathResolver().type() == ConfigType.WORLD
+                ? TranslationKey.RESTART_REQUIRED_WORLD : TranslationKey.RESTART_REQUIRED_SERVER;
+        }
+    }
 }

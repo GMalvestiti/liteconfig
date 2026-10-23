@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.validation;
 
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigExtension;
+import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigConstraints;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
@@ -10,7 +11,7 @@ import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigExtensionLookup;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
-import com.gmalvestiti.minecraft.liteconfig.storage.ConfigBinder;
+import com.gmalvestiti.minecraft.liteconfig.storage.ConfigSerialization;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -39,6 +40,35 @@ public final class ConfigGuard<T> {
             model.fieldAccess(), model.fields(), model.metadata());
     }
 
+    public void normalize(T candidate) {
+        normalize(candidate, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    private void normalize(Object candidate, Set<Object> ancestors) {
+        if (candidate == null || !ancestors.add(candidate)) {
+            return;
+        }
+
+        try {
+            for (DeclaredConfig.Property property : fields.properties(candidate.getClass())) {
+
+                Object value = fieldAccess.read(property.field(), candidate);
+                ConfigConstraints constraints = property.constraints();
+
+                if (value instanceof String text && !constraints.allowedValues().isEmpty()) {
+                    String normalized = constraints.normalization().apply(text, constraints.trim());
+                    if (!normalized.equals(text)) {
+                        fieldAccess.write(property.field(), candidate, normalized);
+                    }
+                } else if (fields.descendable(property)) {
+                    normalize(value, ancestors);
+                }
+            }
+        } finally {
+            ancestors.remove(candidate);
+        }
+    }
+
     public void validate(T candidate) {
         List<Violation> violations = violationsOf(candidate);
 
@@ -48,8 +78,12 @@ public final class ConfigGuard<T> {
     }
 
     public List<Violation> violationsOf(T candidate) {
-        List<Violation> violations = new ArrayList<>(constraintValidator.run(candidate));
+        List<Violation> declaredViolations = constraintValidator.run(candidate);
+        if (!declaredViolations.isEmpty()) {
+            return declaredViolations;
+        }
 
+        List<Violation> violations = new ArrayList<>();
         ConfigExtension extension = extensions.resolve(candidate);
         if (extension != null) {
             append(invoke(extension), violations);
@@ -73,6 +107,10 @@ public final class ConfigGuard<T> {
         for (RestartField found : restartFieldsOf(current, candidate)) {
             fieldAccess.write(found.field, found.candidate, fieldAccess.read(found.field, found.current));
         }
+    }
+
+    public boolean changesRestart(T current, T candidate) {
+        return restartFieldsOf(current, candidate).stream().anyMatch(this::changed);
     }
 
     private List<Violation> invoke(ConfigExtension extension) {
@@ -148,8 +186,8 @@ public final class ConfigGuard<T> {
     }
 
     private boolean changed(RestartField found) {
-        return !ConfigBinder.toTree(fieldAccess.read(found.field, found.current))
-            .equals(ConfigBinder.toTree(fieldAccess.read(found.field, found.candidate)));
+        return !ConfigSerialization.toTree(fieldAccess.read(found.field, found.current))
+            .equals(ConfigSerialization.toTree(fieldAccess.read(found.field, found.candidate)));
     }
 
     private static String summaryOf(List<Violation> violations) {

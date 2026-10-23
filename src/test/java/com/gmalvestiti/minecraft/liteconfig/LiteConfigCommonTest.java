@@ -8,9 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 class LiteConfigCommonTest {
 
     @Test
-    void testExposesModIdAndInitIsNoop() {
+    void testExposesModId() {
         assertEquals("liteconfig", LiteConfigCommon.MOD_ID);
-        assertDoesNotThrow(LiteConfigCommon::new);
     }
 
     @Test

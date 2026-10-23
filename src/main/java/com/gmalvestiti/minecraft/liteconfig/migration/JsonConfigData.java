@@ -50,7 +50,8 @@ final class JsonConfigData implements ConfigData {
     @Override
     public ConfigData set(String path, Object value) {
         String[] steps = PropertyPath.split(path);
-        parentOf(steps, true).add(PropertyPath.last(steps), toElement(value));
+        JsonElement encoded = toElement(value);
+        parentOf(steps, true).add(steps[steps.length - 1], encoded);
         return this;
     }
 
@@ -62,7 +63,7 @@ final class JsonConfigData implements ConfigData {
             JsonObject parent = parentOf(steps, false);
 
             if (parent != null) {
-                parent.remove(PropertyPath.last(steps));
+                parent.remove(steps[steps.length - 1]);
             }
         }
 
@@ -81,7 +82,7 @@ final class JsonConfigData implements ConfigData {
         String[] steps = PropertyPath.split(to);
 
         remove(from);
-        parentOf(steps, true).add(PropertyPath.last(steps), value);
+        parentOf(steps, true).add(steps[steps.length - 1], value);
 
         return this;
     }
@@ -101,7 +102,7 @@ final class JsonConfigData implements ConfigData {
         String[] steps = PropertyPath.split(path);
         JsonObject parent = parentOf(steps, false);
 
-        return parent == null ? null : parent.get(PropertyPath.last(steps));
+        return parent == null ? null : parent.get(steps[steps.length - 1]);
     }
 
     /**

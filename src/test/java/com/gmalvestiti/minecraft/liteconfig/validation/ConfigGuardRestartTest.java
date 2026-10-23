@@ -25,24 +25,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConfigGuardRestartTest {
 
     @Test
-    void testRejectsAnUpdateThatTouchesARestartOnlyField(@TempDir Path tempDir) {
+    void testStagesAnUpdateThatTouchesARestartOnlyField(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.EntryConfig> holder = holder(tempDir);
 
         UpdateResult result = holder.update(config -> config.worldPreset = "flat");
 
-        assertFalse(result.accepted());
-        assertEquals("restart.worldPreset", result.violations().getFirst().id());
-        assertEquals("default", holder.data().worldPreset, "the rejected candidate must not reach the state");
+        assertTrue(result.accepted());
+        assertEquals("default", holder.data().worldPreset);
+        assertEquals("flat", holder.pending().orElseThrow().worldPreset);
     }
 
     @Test
-    void testRejectsARestartOnlyFieldNestedInsideTheModel(@TempDir Path tempDir) {
+    void testStagesARestartOnlyFieldNestedInsideTheModel(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.EntryConfig> holder = holder(tempDir);
 
         UpdateResult result = holder.update(config -> config.section.experimental = true);
 
-        assertFalse(result.accepted());
-        assertEquals("restart.experimental", result.violations().getFirst().id());
+        assertTrue(result.accepted());
+        assertFalse(holder.data().section.experimental);
+        assertTrue(holder.pending().orElseThrow().section.experimental);
     }
 
     @Test
@@ -55,7 +56,8 @@ class ConfigGuardRestartTest {
 
     @Test
     void testStillAcceptsTheValueTheFileSupplies(@TempDir Path tempDir) throws IOException {
-        Files.writeString(tempDir.resolve("entries.json5"), "{\"worldPreset\": \"flat\"}");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("entries.json5"), "{\"worldPreset\": \"flat\"}");
 
         ConfigHolder<TestFixtures.EntryConfig> holder = holder(tempDir);
 
@@ -64,19 +66,16 @@ class ConfigGuardRestartTest {
     }
 
     @Test
-    void testReportsTheDedicatedErrorUnderAStrictPolicy(@TempDir Path tempDir) {
+    void testStagesRestartOnlyChangesUnderAStrictPolicy(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.StrictEntryConfig> holder =
             LiteConfig.holder(TestFixtures.StrictEntryConfig.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
                 .create();
 
-        LiteConfigException failure = org.junit.jupiter.api.Assertions.assertThrows(
-            LiteConfigException.class,
-            () -> holder.update(config -> config.worldPreset = "flat")
-        );
-        assertEquals(ConfigError.RESTART_FIELD_CHANGED, failure.error());
-        assertEquals(1, failure.violations().size());
+        assertTrue(holder.update(config -> config.worldPreset = "flat").accepted());
+        assertEquals("default", holder.data().worldPreset);
+        assertEquals("flat", holder.pending().orElseThrow().worldPreset);
     }
 
     @Test

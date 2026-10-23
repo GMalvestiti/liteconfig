@@ -21,15 +21,18 @@ public final class ConfigEngine<T> {
     private final ConfigModel<T> model;
     private final ConfigStorage<T> storage;
     private final StateCloner<T> cloner;
+    private final Consumer<T> normalizer;
 
     public ConfigEngine(
         ConfigModel<T> model,
         ConfigStorage<T> storage,
-        StateCloner<T> cloner
+        StateCloner<T> cloner,
+        Consumer<T> normalizer
     ) {
         this.model = model;
         this.storage = storage;
         this.cloner = cloner;
+        this.normalizer = normalizer;
     }
 
     public T initialize() {
@@ -65,7 +68,34 @@ public final class ConfigEngine<T> {
 
         T candidate = StateCopies.isolated(cloner, data, model.scope());
         invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
+
+        normalizer.accept(candidate);
         storage.write(candidate);
+    }
+
+    public void save(T data, Consumer<T> finish) {
+        storage.write(prepareSave(data, finish));
+    }
+
+    public ConfigStorage.PreparedWrite prepareRestartWrite(T data, Consumer<T> finish) {
+        return storage.prepareRestartWrite(prepareSave(data, finish));
+    }
+
+    public T restartFileState(T defaults) {
+        T persisted = storage.read();
+        return persisted == null ? defaults : persisted;
+    }
+
+    private T prepareSave(T data, Consumer<T> finish) {
+        T candidate = StateCopies.isolated(cloner, data, model.scope());
+
+        if (model.extensions().hasBeforeSave()) {
+            invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
+            normalizer.accept(candidate);
+        }
+
+        finish.accept(candidate);
+        return candidate;
     }
 
     private void invoke(String hook, T root, Consumer<ConfigExtension> call) {

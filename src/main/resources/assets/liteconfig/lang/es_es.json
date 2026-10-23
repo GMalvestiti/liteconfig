@@ -1,4 +1,5 @@
 {
-  "liteconfig.disconnect.restart_required": "La configuración del servidor cambió opciones que requieren reiniciar. Reinicia el juego antes de volver a conectarte.",
-  "liteconfig.disconnect.sync_failed": "La sincronización de la configuración del servidor falló."
+  "liteconfig.disconnect.restart_required_world": "La configuración de este mundo ha cambiado.\n\nVuelve a conectarte para aplicar los nuevos ajustes.",
+  "liteconfig.disconnect.sync_failed": "No se ha podido aplicar la configuración de este servidor.\n\nIntenta conectarte de nuevo. Si el problema persiste, consulta el registro del juego para obtener más información.",
+  "liteconfig.disconnect.restart_required_server": "Este servidor requiere ajustes que solo se aplican tras reiniciar el juego.\n\nLos ajustes necesarios se han guardado. Reinicia Minecraft y vuelve a conectarte."
 }

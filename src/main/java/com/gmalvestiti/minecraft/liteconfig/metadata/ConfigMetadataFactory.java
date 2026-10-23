@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
@@ -29,7 +30,7 @@ public final class ConfigMetadataFactory {
             rootType,
             declaredConfig.comment(),
             declaredConfig.version(),
-            propertiesOf(rootType, defaults, "", false, new LinkedHashSet<>(), scope, fields)
+            propertiesOf(rootType, defaults, "", SyncMode.INHERIT, new LinkedHashSet<>(), scope, fields)
         );
     }
 
@@ -37,7 +38,7 @@ public final class ConfigMetadataFactory {
         Class<?> owner,
         Object defaultOwner,
         String prefix,
-        boolean synced,
+        SyncMode parentMode,
         Set<Class<?>> ancestors,
         ConfigScope scope,
         ConfigFieldPlan fieldPlan
@@ -50,12 +51,13 @@ public final class ConfigMetadataFactory {
         DeclaredConfig declaredConfig = DeclaredConfig.of(owner);
         rejectInvalidKeys(owner, declaredConfig, scope);
 
-        boolean ownerSynced = synced || declaredConfig.sync();
+        SyncMode ownerMode = parentMode == SyncMode.INHERIT && declaredConfig.sync()
+            ? SyncMode.ENABLED : parentMode;
 
         List<ConfigProperty> properties = new ArrayList<>();
         for (DeclaredConfig.Property property : fieldPlan.properties(owner)) {
             properties.add(propertyOf(
-                property, defaultOwner, prefix, ownerSynced, ancestors, scope, fieldPlan));
+                property, defaultOwner, prefix, ownerMode, ancestors, scope, fieldPlan));
         }
 
         ancestors.remove(owner);
@@ -66,7 +68,7 @@ public final class ConfigMetadataFactory {
         DeclaredConfig.Property described,
         Object defaultOwner,
         String prefix,
-        boolean parentSynced,
+        SyncMode parentMode,
         Set<Class<?>> ancestors,
         ConfigScope scope,
         ConfigFieldPlan fieldPlan
@@ -75,13 +77,18 @@ public final class ConfigMetadataFactory {
         rejectProblems(described, scope);
 
         String path = PropertyPath.child(prefix, described.key());
-        boolean synced = parentSynced || described.sync();
+        SyncMode mode = parentMode == SyncMode.DISABLED || described.sync() == SyncMode.INHERIT
+            ? parentMode : described.sync();
+
         Object defaultValue = defaultValueOf(described, defaultOwner, scope);
+        if (defaultValue instanceof String text && !described.constraints().allowedValues().isEmpty()) {
+            defaultValue = described.constraints().normalization().apply(text, described.constraints().trim());
+        }
 
         boolean descendable = fieldPlan.descendable(described);
         List<ConfigProperty> children = descendable
             ? propertiesOf(
-                described.type(), defaultValue, path, synced, ancestors, scope, fieldPlan)
+                described.type(), defaultValue, path, mode, ancestors, scope, fieldPlan)
             : List.of();
 
         return new ConfigProperty(
@@ -93,7 +100,7 @@ public final class ConfigMetadataFactory {
             described.comment(),
             described.translationKey(),
             described.restart(),
-            synced,
+            mode == SyncMode.ENABLED,
             described.constraints(),
             children
         );

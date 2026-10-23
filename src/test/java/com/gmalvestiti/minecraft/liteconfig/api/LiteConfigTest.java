@@ -141,7 +141,7 @@ class LiteConfigTest {
             .baseDir(tempDir.toString())
             .create();
         holder.save();
-        Files.writeString(tempDir.resolve("with-extension.json5"), "{\"value\":-5}");
+        Files.writeString(tempDir.resolve("mod").resolve("with-extension.json5"), "{\"value\":-5}");
 
         holder.load();
 
@@ -156,7 +156,7 @@ class LiteConfigTest {
             .baseDir(tempDir.toString())
             .create();
         holder.save();
-        Files.writeString(tempDir.resolve("strict-read-with-extension.json5"), "{\"value\":-5}");
+        Files.writeString(tempDir.resolve("mod").resolve("strict-read-with-extension.json5"), "{\"value\":-5}");
 
         LiteConfigException failure = assertThrows(LiteConfigException.class, holder::load);
         assertEquals(ConfigError.VALIDATION_FAILED, failure.error());
@@ -256,9 +256,9 @@ class LiteConfigTest {
     }
 
     @Test
-    void testInvokesFieldCallbacksOnlyForAcceptedChanges(@TempDir Path tempDir) {
-        CallbackConfig.EVENTS.clear();
-        ConfigHolder<CallbackConfig> holder = LiteConfig.holder(CallbackConfig.class)
+    void testInvokesFieldListenersOnlyForAcceptedChanges(@TempDir Path tempDir) {
+        EntryListenerConfig.EVENTS.clear();
+        ConfigHolder<EntryListenerConfig> holder = LiteConfig.holder(EntryListenerConfig.class)
             .modId("mod")
             .baseDir(tempDir)
             .create();
@@ -268,13 +268,13 @@ class LiteConfigTest {
         UpdateResult rejected = holder.update(config -> config.value = -1);
 
         assertFalse(rejected.accepted());
-        assertEquals(List.of(new CallbackEvent(1, 4, false)), CallbackConfig.EVENTS);
+        assertEquals(List.of(new ListenerInvocation(1, 4, false)), EntryListenerConfig.EVENTS);
     }
 
     @Test
-    void testInvokesFieldCallbacksForLoad(@TempDir Path tempDir) {
-        CallbackConfig.EVENTS.clear();
-        ConfigHolder<CallbackConfig> holder = LiteConfig.holder(CallbackConfig.class)
+    void testInvokesFieldListenersForLoad(@TempDir Path tempDir) {
+        EntryListenerConfig.EVENTS.clear();
+        ConfigHolder<EntryListenerConfig> holder = LiteConfig.holder(EntryListenerConfig.class)
             .modId("mod")
             .baseDir(tempDir)
             .create();
@@ -285,25 +285,25 @@ class LiteConfigTest {
 
         assertEquals(
             List.of(
-                new CallbackEvent(1, 4, false),
-                new CallbackEvent(4, 7, false),
-                new CallbackEvent(7, 4, false)
+                new ListenerInvocation(1, 4, false),
+                new ListenerInvocation(4, 7, false),
+                new ListenerInvocation(7, 4, false)
             ),
-            CallbackConfig.EVENTS
+            EntryListenerConfig.EVENTS
         );
     }
 
     @Test
-    void testRejectsAnInvalidFieldCallbackDuringHolderConstruction(@TempDir Path tempDir) {
+    void testRejectsAnInvalidFieldListenerDuringHolderConstruction(@TempDir Path tempDir) {
         LiteConfigException failure = assertThrows(
             LiteConfigException.class,
-            () -> LiteConfig.holder(InvalidCallbackConfig.class)
+            () -> LiteConfig.holder(InvalidEntryListenerConfig.class)
                 .modId("mod")
                 .baseDir(tempDir)
                 .create()
         );
 
-        assertEquals(ConfigError.INVALID_ENTRY_ON_SET_CALLBACK, failure.error());
+        assertEquals(ConfigError.INVALID_ENTRY_LISTENER, failure.error());
     }
 
     private static ConfigHolder<TestFixtures.ConfigWithExtension> holder(Path tempDir) {
@@ -330,24 +330,24 @@ class LiteConfigTest {
         }
     }
 
-    @Config(name = "callbacks")
-    public static class CallbackConfig {
+    @Config(name = "entry-listeners")
+    public static class EntryListenerConfig {
 
-        private static final List<CallbackEvent> EVENTS = new ArrayList<>();
+        private static final List<ListenerInvocation> EVENTS = new ArrayList<>();
 
-        @Entry(callback = "record")
+        @Entry(listener = "record")
         @Range(min = 0)
         public int value = 1;
 
         private void record(Integer oldValue, Integer newValue, boolean fromSync) {
-            EVENTS.add(new CallbackEvent(oldValue, newValue, fromSync));
+            EVENTS.add(new ListenerInvocation(oldValue, newValue, fromSync));
         }
     }
 
-    @Config(name = "invalid-callback")
-    public static class InvalidCallbackConfig {
+    @Config(name = "invalid-entry-listener")
+    public static class InvalidEntryListenerConfig {
 
-        @Entry(callback = "record")
+        @Entry(listener = "record")
         public int value = 1;
 
         private void record(int oldValue, int newValue, boolean fromSync) {
@@ -356,5 +356,5 @@ class LiteConfigTest {
 
     public static class UnannotatedConfig {}
 
-    private record CallbackEvent(int oldValue, int newValue, boolean fromSync) {}
+    private record ListenerInvocation(int oldValue, int newValue, boolean fromSync) {}
 }

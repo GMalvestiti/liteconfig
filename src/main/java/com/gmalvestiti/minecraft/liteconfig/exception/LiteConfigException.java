@@ -67,23 +67,6 @@ public final class LiteConfigException extends RuntimeException {
     }
 
     /**
-     * Canonical constructor taking a raw message body.
-     *
-     * <p>Package-private so the formatting rule cannot be bypassed and stays free to change;
-     * {@link #of(ConfigError, String, String, List, Throwable)} is the way in.
-     *
-     * @param error the error code; must not be {@code null}
-     * @param message the raw message body
-     * @param violations the violations that produced this failure; must not be {@code null}
-     * @param cause the originating exception; may be {@code null}
-     * @throws NullPointerException if {@code error} or {@code violations} is {@code null}
-     */
-    LiteConfigException(
-        ConfigError error, String message, List<Violation> violations, Throwable cause) {
-        this(error, message, message, violations, cause);
-    }
-
-    /**
      * Creates a failure whose thrown message and raw body differ.
      *
      * <p>Used when the message shown to the caller already carries the {@code [modId]} prefix

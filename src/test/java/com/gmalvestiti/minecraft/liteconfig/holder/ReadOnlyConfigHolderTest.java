@@ -31,9 +31,10 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testLoadsOnceWhileBuilding(@TempDir Path tempDir) throws Exception {
-        Files.writeString(tempDir.resolve("with-extension.json5"), "{\"value\":4}");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("with-extension.json5"), "{\"value\":4}");
 
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         assertEquals(4, holder.data().value);
         assertTrue(holder.data().afterLoadCalled);
@@ -41,51 +42,54 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testFallsBackToDefaultsWhenNoFileExists(@TempDir Path tempDir) {
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         assertEquals(1, holder.data().value);
     }
 
     @Test
     void testFallsBackAndBacksUpMalformedDataDuringInitialLoad(@TempDir Path tempDir) throws Exception {
-        Path file = tempDir.resolve("with-extension.json5");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Path file = tempDir.resolve("mod").resolve("with-extension.json5");
         Files.writeString(file, "{");
 
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         assertEquals(1, holder.data().value);
         assertTrue(Files.readString(file).contains("\"value\": 1"),
             "the restored defaults must be persisted, not just held in memory");
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(tempDir.resolve("mod"))) {
             assertEquals(1, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }
 
     @Test
     void testThrowsWithoutBackingUpMalformedDataDuringInitialStrictLoad(@TempDir Path tempDir) throws Exception {
-        Path file = tempDir.resolve("strict-with-extension.json5");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Path file = tempDir.resolve("mod").resolve("strict-with-extension.json5");
         Files.writeString(file, "{");
 
         LiteConfigException failure = assertThrows(LiteConfigException.class, () -> strictHolder(tempDir));
 
         assertEquals(ConfigError.MALFORMED_CONFIG_DATA, failure.error());
         assertTrue(Files.exists(file));
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(tempDir.resolve("mod"))) {
             assertEquals(0, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }
 
     @Test
     void testRestoresDefaultsWhenTheLoadedFileFailsValidation(@TempDir Path tempDir) throws Exception {
-        Path file = tempDir.resolve("with-extension.json5");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Path file = tempDir.resolve("mod").resolve("with-extension.json5");
         Files.writeString(file, "{\"value\":-5}");
 
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         assertEquals(1, holder.data().value, "an invalid file must not become the published state");
         assertTrue(Files.readString(file).contains("\"value\": 1"),
             "the restored defaults must be persisted, not just held in memory");
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(tempDir.resolve("mod"))) {
             assertEquals(1, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count(),
                 "the rejected file must be kept aside so the user can recover their values");
         }
@@ -93,13 +97,13 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testPropagatesDefectsFromTheInitialLoadEvenUnderFallback(@TempDir Path tempDir) throws Exception {
-        Files.writeString(tempDir.resolve("throwing-validator.json5"), "{\"value\":-1}");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("throwing-validator.json5"), "{\"value\":-1}");
 
         LiteConfigException failure = assertThrows(LiteConfigException.class, () -> LiteConfig
-            .holder(TestFixtures.ThrowingValidatorConfig.class)
+            .holder(TestFixtures.ReadOnlyThrowingValidatorConfig.class)
             .modId("mod")
             .baseDir(tempDir.toString())
-            .readOnly()
             .create());
 
         assertEquals(ConfigError.VALIDATOR_FAILED, failure.error(),
@@ -108,7 +112,7 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testHandsOutTheSameInstanceOnEveryRead(@TempDir Path tempDir) {
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         assertSame(holder.data(), holder.data());
     }
@@ -142,11 +146,10 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testSkipsMutatingOperationsUnderFallbackPolicies(@TempDir Path tempDir) {
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = LiteConfig
-            .holder(TestFixtures.ConfigWithExtension.class)
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = LiteConfig
+            .holder(TestFixtures.ReadOnlyConfigWithExtension.class)
             .modId("mod")
             .baseDir(tempDir.toString())
-            .readOnly()
             .create();
 
         holder.load();
@@ -165,26 +168,24 @@ class ReadOnlyConfigHolderTest {
 
     @Test
     void testStillSupportsSaving(@TempDir Path tempDir) {
-        ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder = holder(tempDir);
 
         holder.save();
 
-        assertTrue(Files.exists(tempDir.resolve("with-extension.json5")));
+        assertTrue(Files.exists(tempDir.resolve("mod").resolve("with-extension.json5")));
     }
 
-    private static ConfigHolder<TestFixtures.StrictConfigWithExtension> strictHolder(Path tempDir) {
-        return LiteConfig.holder(TestFixtures.StrictConfigWithExtension.class)
+    private static ConfigHolder<TestFixtures.StrictReadOnlyConfigWithExtension> strictHolder(Path tempDir) {
+        return LiteConfig.holder(TestFixtures.StrictReadOnlyConfigWithExtension.class)
             .modId("mod")
             .baseDir(tempDir.toString())
-            .readOnly()
             .create();
     }
 
-    private static ConfigHolder<TestFixtures.ConfigWithExtension> holder(Path tempDir) {
-        return LiteConfig.holder(TestFixtures.ConfigWithExtension.class)
+    private static ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> holder(Path tempDir) {
+        return LiteConfig.holder(TestFixtures.ReadOnlyConfigWithExtension.class)
             .modId("mod")
             .baseDir(tempDir.toString())
-            .readOnly()
             .create();
     }
 }

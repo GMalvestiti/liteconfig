@@ -1,14 +1,18 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
+import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigHolder;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigExtension;
 import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
+import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
+import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
-import com.gmalvestiti.minecraft.liteconfig.holder.ConfigHolderImplementation;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
@@ -44,6 +48,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(ConfigRegistryIsolation.class)
 class SyncedConfigTest {
+
+    @Test
+    void snapshotEncodingUsesTheStateMonitorWithoutStartingANestedOperation(@TempDir Path tempDir) {
+        if (LiteConfig.codecs().find(SnapshotLockValue.class).isEmpty()) {
+            LiteConfig.codecs()
+                .registerCodec(SnapshotLockValue.class, SnapshotLockValue.CODEC)
+                .registerStreamCodec(SnapshotLockValue.class, SnapshotLockValue.STREAM_CODEC);
+        }
+        RegisteredConfig<SnapshotLockConfig> config = create(SnapshotLockConfig.class, tempDir);
+        SyncedConfig<SnapshotLockConfig> synced = SyncedConfig.of(config);
+        AtomicInteger encodes = new AtomicInteger();
+        SnapshotLockValue.PROBE = () -> {
+            assertTrue(Thread.holdsLock(config.state().operationLock()));
+            assertFalse(Thread.holdsLock(synced), "snapshot encoding must not acquire a second monitor");
+            encodes.incrementAndGet();
+        };
+        try {
+            synced.cachedSnapshot();
+            config.state().writing(() -> {
+                SnapshotLockConfig candidate = config.state().copyOfCanonical();
+                candidate.value = new SnapshotLockValue(2);
+                config.state().replace(candidate);
+                assertTrue(synced.changedSnapshot() != null);
+                return null;
+            });
+            assertEquals(2, encodes.get());
+        } finally {
+            SnapshotLockValue.PROBE = () -> {};
+        }
+    }
 
     @Test
     void testCarriesNestedValuesToAnotherCopyOfTheSameConfig(@TempDir Path tempDir) {
@@ -222,46 +256,45 @@ class SyncedConfigTest {
     }
 
     @Test
-    void testInvokesCallbacksAndListenersOnlyForChangedSyncValues(@TempDir Path tempDir) {
-        CallbackSyncedConfig.EVENTS.clear();
+    void testInvokesListenersAndEventsOnlyForChangedSyncValues(@TempDir Path tempDir) {
+        ListenerSyncedConfig.EVENTS.clear();
 
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> target =
+            create(ListenerSyncedConfig.class, tempDir.resolve("target"));
         int[] updates = {0};
 
-        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        ListenerSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 6;
         source.state().replace(candidate);
 
         ConfigBytes payload = SyncedConfig.of(source).cachedSnapshot().data();
-        target.notifier().addUpdateListener(state -> updates[0]++);
+        target.holderEvents().addUpdateEvent(state -> updates[0]++);
 
         apply(SyncedConfig.of(target), payload);
         apply(SyncedConfig.of(target), payload);
 
-        assertEquals(List.of(new SyncCallbackEvent(1, 6, true)), CallbackSyncedConfig.EVENTS);
+        assertEquals(List.of(new SyncListenerEvent(1, 6, true)), ListenerSyncedConfig.EVENTS);
         assertEquals(1, updates[0]);
     }
 
     @Test
-    void testPersistsAndDispatchesCallbacksOnClientThread(
+    void testAppliesOverlayAndDispatchesListenersOnCallerThread(
         @TempDir Path tempDir
     ) throws Exception {
-        CallbackSyncedConfig.EVENTS.clear();
-        CallbackSyncedConfig.THREADS.clear();
+        ListenerSyncedConfig.EVENTS.clear();
+        ListenerSyncedConfig.THREADS.clear();
 
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
 
-        ConfigSyncRegistry.initialize();
 
-        RegisteredConfig<CallbackSyncedConfig> target =
+        RegisteredConfig<ListenerSyncedConfig> target =
             ConfigRegistry.register(new ConfigSettings<>(
-                CallbackSyncedConfig.class, new ConfigScope("mod"), tempDir.resolve("target")));
+                ListenerSyncedConfig.class, new ConfigScope("mod"), tempDir.resolve("target")));
 
-        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        ListenerSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 8;
         source.state().replace(candidate);
 
@@ -277,110 +310,114 @@ class SyncedConfigTest {
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
 
-        assertEquals(List.of(Thread.currentThread().getName()), CallbackSyncedConfig.THREADS);
-        assertTrue(Files.readString(tempDir.resolve("target").resolve("callback-sync.json5"))
-            .contains("\"shared\": 8"));
+        assertEquals(List.of(Thread.currentThread().getName()), ListenerSyncedConfig.THREADS);
+        assertTrue(Files.readString(tempDir.resolve("target").resolve("mod").resolve("listener-sync.json5"))
+            .contains("\"shared\": 1"));
     }
 
     @Test
-    void testSyncedCallbacksCompleteBeforeConnectionReset(@TempDir Path tempDir) {
-        CallbackSyncedConfig.EVENTS.clear();
+    void testSyncedListenersAndResetRestorationCompleteSynchronously(@TempDir Path tempDir) {
+        ListenerSyncedConfig.EVENTS.clear();
 
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> target =
+            ConfigRegistry.register(new ConfigSettings<>(
+                ListenerSyncedConfig.class, new ConfigScope("mod"), tempDir.resolve("target")));
 
-        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        ListenerSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 7;
         source.state().replace(candidate);
 
-        List<Runnable> actions = new ArrayList<>();
-        ClientConfigSync.setClientMainThreadExecutor(actions::add);
         AtomicInteger notifications = new AtomicInteger();
-        target.notifier().addUpdateListener(ignored -> notifications.incrementAndGet());
+        target.holderEvents().addUpdateEvent(ignored -> notifications.incrementAndGet());
 
         apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
-        assertEquals(List.of(new SyncCallbackEvent(1, 7, true)), CallbackSyncedConfig.EVENTS);
+        assertEquals(List.of(new SyncListenerEvent(1, 7, true)), ListenerSyncedConfig.EVENTS);
         assertEquals(1, notifications.get());
 
         ClientConfigSync.resetClientConnection();
-        actions.forEach(Runnable::run);
 
-        assertEquals(List.of(new SyncCallbackEvent(1, 7, true)), CallbackSyncedConfig.EVENTS);
-        assertEquals(1, notifications.get());
+        assertEquals(List.of(
+            new SyncListenerEvent(1, 7, true),
+            new SyncListenerEvent(7, 1, true)), ListenerSyncedConfig.EVENTS);
+        assertEquals(2, notifications.get());
+        assertEquals(1, target.state().published().shared);
+        assertFalse(target.state().remoteActive());
+        ClientConfigSync.resetClientConnection();
+        assertEquals(2, notifications.get());
     }
 
     @Test
-    void testSyncedFieldCallbackRejectsNestedHolderMutation(@TempDir Path tempDir) {
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
-        ConfigHolder<CallbackSyncedConfig> holder = new ConfigHolderImplementation<>(target, false);
-        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+    void testSyncedFieldListenerRunsOutsideMonitorAndPreservesRemoteUpdatePolicy(@TempDir Path tempDir) {
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> target =
+            create(ListenerSyncedConfig.class, tempDir.resolve("target"));
+        ConfigHolder<ListenerSyncedConfig> holder = target.access();
+        ListenerSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 7;
         source.state().replace(candidate);
-        List<ConfigError> failures = new ArrayList<>();
-        CallbackSyncedConfig.AFTER_RECORD = () -> {
-            LiteConfigException failure = assertThrows(
-                LiteConfigException.class, () -> holder.update(value -> value.shared = 99));
-            failures.add(failure.error());
+        SyncedConfig<ListenerSyncedConfig> synced = SyncedConfig.of(target);
+        List<Boolean> monitorHeld = new ArrayList<>();
+        List<Boolean> updateAccepted = new ArrayList<>();
+        ListenerSyncedConfig.AFTER_RECORD = () -> {
+            monitorHeld.add(Thread.holdsLock(target.state().operationLock()));
+            updateAccepted.add(holder.update(value -> {}).accepted());
         };
         try {
-            apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+            apply(synced, SyncedConfig.of(source).cachedSnapshot().data());
+            synced.clearRemote();
         } finally {
-            CallbackSyncedConfig.AFTER_RECORD = () -> {
+            ListenerSyncedConfig.AFTER_RECORD = () -> {
             };
+            synced.clearRemote();
         }
 
-        assertEquals(List.of(ConfigError.NESTED_CONFIG_OPERATION), failures);
-        assertEquals(7, holder.data().shared);
+        assertEquals(List.of(false, false), monitorHeld);
+        assertEquals(List.of(false, true), updateAccepted);
+        assertEquals(1, holder.data().shared);
     }
 
     @Test
-    void testSyncUpdatesSkipLocalBroadcastListeners(@TempDir Path tempDir) {
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+    void testClientSyncNotifiesHolderEventsWithoutUsingThemForBroadcast(@TempDir Path tempDir) {
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> target =
+            create(ListenerSyncedConfig.class, tempDir.resolve("target"));
 
-        CallbackSyncedConfig candidate = source.state().copyOfCanonical();
+        ListenerSyncedConfig candidate = source.state().copyOfCanonical();
         candidate.shared = 7;
         source.state().replace(candidate);
 
-        AtomicInteger localUpdates = new AtomicInteger();
         AtomicInteger allUpdates = new AtomicInteger();
-        target.notifier().addLocalUpdateListener(
-            ignored -> localUpdates.incrementAndGet(),
-            Runnable::run);
-        target.notifier().addUpdateListener(ignored -> allUpdates.incrementAndGet());
+        SyncedConfig<ListenerSyncedConfig> synced = SyncedConfig.of(target);
+        synced.registerLocalChangeBroadcast();
+        target.holderEvents().addUpdateEvent(ignored -> allUpdates.incrementAndGet());
 
-        apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+        apply(synced, SyncedConfig.of(source).cachedSnapshot().data());
 
-        assertEquals(0, localUpdates.get());
         assertEquals(1, allUpdates.get());
-        target.notifier().notifyUpdated(target.state().published());
-        assertEquals(1, localUpdates.get());
-        assertEquals(2, allUpdates.get());
+        target.syncNotifier().notifyLocalChange();
+        assertEquals(1, allUpdates.get());
     }
 
     @Test
     void testListenersReceiveEachPublishedTransition(@TempDir Path tempDir) {
-        RegisteredConfig<CallbackSyncedConfig> source =
-            create(CallbackSyncedConfig.class, tempDir.resolve("source"));
-        RegisteredConfig<CallbackSyncedConfig> target =
-            create(CallbackSyncedConfig.class, tempDir.resolve("target"));
+        RegisteredConfig<ListenerSyncedConfig> source =
+            create(ListenerSyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<ListenerSyncedConfig> target =
+            create(ListenerSyncedConfig.class, tempDir.resolve("target"));
         List<Integer> published = new ArrayList<>();
-        target.notifier().addUpdateListener(state -> published.add(state.shared));
+        target.holderEvents().addUpdateEvent(state -> published.add(state.shared));
 
-        CallbackSyncedConfig second = source.state().copyOfCanonical();
+        ListenerSyncedConfig second = source.state().copyOfCanonical();
         second.shared = 2;
         source.state().replace(second);
 
         apply(SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
 
-        CallbackSyncedConfig third = source.state().copyOfCanonical();
+        ListenerSyncedConfig third = source.state().copyOfCanonical();
         third.shared = 3;
         source.state().replace(third);
 
@@ -390,29 +427,29 @@ class SyncedConfigTest {
     }
 
     @Test
-    void testSerializesCallbacksInTransitionOrder(@TempDir Path tempDir) {
-        CallbackSyncedConfig.EVENTS.clear();
-        CallbackSyncedConfig.ACTIVE.set(0);
-        CallbackSyncedConfig.MAX_ACTIVE.set(0);
-        RegisteredConfig<CallbackSyncedConfig> config =
-            create(CallbackSyncedConfig.class, tempDir);
+    void testSerializesListenersInTransitionOrder(@TempDir Path tempDir) {
+        ListenerSyncedConfig.EVENTS.clear();
+        ListenerSyncedConfig.ACTIVE.set(0);
+        ListenerSyncedConfig.MAX_ACTIVE.set(0);
+        RegisteredConfig<ListenerSyncedConfig> config =
+            create(ListenerSyncedConfig.class, tempDir);
 
-        CallbackSyncedConfig first = new CallbackSyncedConfig();
-        CallbackSyncedConfig second = new CallbackSyncedConfig();
-        CallbackSyncedConfig third = new CallbackSyncedConfig();
+        ListenerSyncedConfig first = new ListenerSyncedConfig();
+        ListenerSyncedConfig second = new ListenerSyncedConfig();
+        ListenerSyncedConfig third = new ListenerSyncedConfig();
         second.shared = 2;
         third.shared = 3;
 
-        Runnable firstDrain = config.model().callbacks().enqueueChanged(first, second, false);
-        Runnable secondDrain = config.model().callbacks().enqueueChanged(second, third, false);
+        Runnable firstDrain = config.model().listeners().enqueueChanged(first, second, false);
+        Runnable secondDrain = config.model().listeners().enqueueChanged(second, third, false);
 
         firstDrain.run();
         secondDrain.run();
 
-        assertEquals(1, CallbackSyncedConfig.MAX_ACTIVE.get());
+        assertEquals(1, ListenerSyncedConfig.MAX_ACTIVE.get());
         assertEquals(
-            List.of(new SyncCallbackEvent(1, 2, false), new SyncCallbackEvent(2, 3, false)),
-            CallbackSyncedConfig.EVENTS);
+            List.of(new SyncListenerEvent(1, 2, false), new SyncListenerEvent(2, 3, false)),
+            ListenerSyncedConfig.EVENTS);
     }
 
     @Test
@@ -431,7 +468,7 @@ class SyncedConfigTest {
             LiteConfigException.class,
             () -> SyncedConfig.of(target).prepare(payload));
         assertEquals(
-            ClientConfigSync.SYNC_FAILED,
+            TranslationKey.SYNC_FAILED,
             receive(SyncedConfig.of(target), payload).disconnectReason());
         assertEquals(Mood.BRIGHT, target.state().published().mood);
     }
@@ -480,16 +517,124 @@ class SyncedConfigTest {
             LiteConfigException.class,
             () -> synced.prepare(ConfigBytes.of(padded)));
         assertEquals(
-            ClientConfigSync.SYNC_FAILED,
+            TranslationKey.SYNC_FAILED,
             receive(synced, ConfigBytes.of(padded)).disconnectReason());
     }
 
     @Test
-    void testDurablyAppliesServerValuesToTheClientFile(@TempDir Path tempDir) throws Exception {
+    void staleSchemaRejectsPayloadWithoutReplacingAnExistingOverlay(@TempDir Path tempDir) {
+        RegisteredConfig<PartiallySyncedConfig> source =
+            create(PartiallySyncedConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<PartiallySyncedConfig> target =
+            create(PartiallySyncedConfig.class, tempDir.resolve("target"));
+        PartiallySyncedConfig candidate = source.state().copyOfCanonical();
+        candidate.shared = 9;
+        source.state().replace(candidate);
+        SyncedConfig<PartiallySyncedConfig> receiver = SyncedConfig.of(target);
+        ConfigBytes valid = SyncedConfig.of(source).cachedSnapshot().data();
+        apply(receiver, valid);
+        byte[] stale = valid.bytes();
+        stale[0] ^= 1;
+
+        assertThrows(LiteConfigException.class, () -> receiver.prepare(ConfigBytes.of(stale)));
+        assertEquals(TranslationKey.SYNC_FAILED, receive(receiver, ConfigBytes.of(stale)).disconnectReason());
+        assertEquals(9, target.state().published().shared);
+        assertEquals(1, target.state().copyOfLocal().shared);
+        assertTrue(target.state().remoteActive());
+    }
+
+    @Test
+    void validatesTheEffectiveSnapshotAfterCarryingOverRestartValues(@TempDir Path tempDir) {
+        RegisteredConfig<DependentRestartConfig> source =
+            create(DependentRestartConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<DependentRestartConfig> target =
+            create(DependentRestartConfig.class, tempDir.resolve("target"));
+        DependentRestartConfig candidate = source.state().copyOfCanonical();
+        candidate.poolSize = 32;
+        candidate.workers = 16;
+        source.state().replace(candidate);
+        ConfigBytes payload = SyncedConfig.of(source).cachedSnapshot().data();
+        SyncedConfig<DependentRestartConfig> receiver = SyncedConfig.of(target);
+
+        assertThrows(LiteConfigException.class, () -> receiver.prepare(payload));
+        assertEquals(TranslationKey.SYNC_FAILED, receive(receiver, payload).disconnectReason());
+        assertEquals(8, target.state().published().poolSize);
+        assertEquals(4, target.state().published().workers);
+        assertTrue(target.state().pending().isEmpty());
+        assertFalse(target.state().remoteActive());
+    }
+
+    @Test
+    void strictRestartDisconnectsOnlyWhenRestartValuesDiffer(@TempDir Path tempDir) {
+        RegisteredConfig<StrictRestartConfig> source =
+            create(StrictRestartConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<StrictRestartConfig> target =
+            create(StrictRestartConfig.class, tempDir.resolve("target"));
+        SyncedConfig<StrictRestartConfig> receiver = SyncedConfig.of(target);
+        StrictRestartConfig candidate = source.state().copyOfCanonical();
+        candidate.immediate = 9;
+        source.state().replace(candidate);
+
+        ClientSyncResult equal = receive(receiver, SyncedConfig.of(source).cachedSnapshot().data());
+        assertTrue(equal.completed());
+        assertFalse(equal.restartRequired());
+        assertNull(equal.disconnectReason());
+        assertEquals(9, target.state().published().immediate);
+
+        candidate = source.state().copyOfCanonical();
+        candidate.restartValue = 32;
+        source.state().replace(candidate);
+        ClientSyncResult different = receive(receiver, SyncedConfig.of(source).cachedSnapshot().data());
+
+        assertTrue(different.completed());
+        assertTrue(different.restartRequired());
+        assertEquals(TranslationKey.RESTART_REQUIRED_SERVER, different.disconnectReason());
+        assertEquals(8, target.state().published().restartValue);
+        assertEquals(32, target.state().pending().orElseThrow().restartValue);
+        receiver.clearRemote();
+        assertEquals(8, target.state().published().restartValue);
+        assertEquals(1, target.state().published().immediate);
+        assertEquals(32, target.state().pending().orElseThrow().restartValue);
+    }
+
+    @Test
+    void defaultRestartPolicyDefersWithoutDisconnecting(@TempDir Path tempDir) {
+        RegisteredConfig<DependentRestartConfig> source =
+            create(DependentRestartConfig.class, tempDir.resolve("source"));
+        RegisteredConfig<DependentRestartConfig> target =
+            create(DependentRestartConfig.class, tempDir.resolve("target"));
+        DependentRestartConfig candidate = source.state().copyOfCanonical();
+        candidate.poolSize = 32;
+        source.state().replace(candidate);
+
+        ClientSyncResult result = receive(
+            SyncedConfig.of(target), SyncedConfig.of(source).cachedSnapshot().data());
+
+        assertTrue(result.completed());
+        assertTrue(result.restartRequired());
+        assertNull(result.disconnectReason());
+        assertEquals(8, target.state().published().poolSize);
+        assertEquals(32, target.state().pending().orElseThrow().poolSize);
+    }
+
+    @Test
+    void restartPolicyParticipatesInTheSchemaFingerprint(@TempDir Path tempDir) throws Exception {
+        RegisteredConfig<StrictRestartConfig> config = create(StrictRestartConfig.class, tempDir);
+        var schema = SyncedConfig.class.getDeclaredMethod(
+            "schemaOf", RegisteredConfig.class, List.class, RestartSyncPolicy.class);
+        schema.setAccessible(true);
+
+        long deferred = (long) schema.invoke(null, config, List.of(), RestartSyncPolicy.DEFER);
+        long strict = (long) schema.invoke(null, config, List.of(), RestartSyncPolicy.DISCONNECT);
+
+        assertTrue(deferred != strict);
+    }
+
+    @Test
+    void testRemoteOverlayPreservesTheClientFileAndRestoresLocalPreferences(@TempDir Path tempDir) throws Exception {
         RegisteredConfig<PartiallySyncedConfig> server =
             create(PartiallySyncedConfig.class, tempDir.resolve("server"));
 
-        ConfigSyncRegistry.initialize();
         Path clientDir = tempDir.resolve("client");
 
         ConfigHolder<PartiallySyncedConfig> client = LiteConfig.holder(PartiallySyncedConfig.class)
@@ -519,14 +664,17 @@ class SyncedConfigTest {
 
         assertEquals(localShared + 7, client.data().shared);
 
-        String written = Files.readString(clientDir.resolve("partial-sync.json5"));
+        String written = Files.readString(clientDir.resolve("mod").resolve("partial-sync.json5"));
 
         assertTrue(written.contains("chosen by the player"));
         assertTrue(
-            written.contains("\"shared\": " + (localShared + 7)),
-            "a durable server payload must write its synced value: " + written);
+            written.contains("\"shared\": " + localShared),
+            "a remote payload must preserve the local preference file: " + written);
 
         assertEquals(localShared + 7, client.data().shared);
+        assertEquals("chosen by the player", client.data().private_);
+        ClientConfigSync.resetClientConnection();
+        assertEquals(localShared, client.data().shared);
         assertEquals("chosen by the player", client.data().private_);
     }
 
@@ -565,15 +713,15 @@ class SyncedConfigTest {
         CALM
     }
 
-    @Config(name = "custom-wire", sync = true)
+    @Config(name = "custom-wire", sync = SyncMode.ENABLED)
     public static class CustomWireConfig {
         public RgbColor color = new RgbColor(1, 2);
     }
 
-    @Config(name = "callback-sync", sync = true)
-    public static class CallbackSyncedConfig {
+    @Config(name = "listener-sync", sync = SyncMode.ENABLED)
+    public static class ListenerSyncedConfig {
 
-        private static final List<SyncCallbackEvent> EVENTS =
+        private static final List<SyncListenerEvent> EVENTS =
             new ArrayList<>();
         private static final List<String> THREADS =
             new ArrayList<>();
@@ -582,14 +730,14 @@ class SyncedConfigTest {
         private static Runnable AFTER_RECORD = () -> {
         };
 
-        @Entry(callback = "record")
+        @Entry(listener = "record")
         public int shared = 1;
 
         private void record(Integer oldValue, Integer newValue, boolean fromSync) {
             int active = ACTIVE.incrementAndGet();
             MAX_ACTIVE.accumulateAndGet(active, Math::max);
             try {
-                EVENTS.add(new SyncCallbackEvent(oldValue, newValue, fromSync));
+                EVENTS.add(new SyncListenerEvent(oldValue, newValue, fromSync));
                 THREADS.add(Thread.currentThread().getName());
                 AFTER_RECORD.run();
             } finally {
@@ -598,7 +746,7 @@ class SyncedConfigTest {
         }
     }
 
-    private record SyncCallbackEvent(int oldValue, int newValue, boolean fromSync) {
+    private record SyncListenerEvent(int oldValue, int newValue, boolean fromSync) {
     }
 
     public record RgbColor(int red, int blue) {
@@ -611,6 +759,24 @@ class SyncedConfigTest {
             ByteBufCodecs.VAR_INT, RgbColor::red,
             ByteBufCodecs.VAR_INT, RgbColor::blue,
             RgbColor::new
+        );
+    }
+
+    @Config(name = "snapshot-lock", sync = SyncMode.ENABLED)
+    public static class SnapshotLockConfig {
+        public SnapshotLockValue value = new SnapshotLockValue(1);
+    }
+
+    public record SnapshotLockValue(int value) {
+        private static Runnable PROBE = () -> {};
+        private static final Codec<SnapshotLockValue> CODEC =
+            Codec.INT.xmap(SnapshotLockValue::new, SnapshotLockValue::value);
+        private static final StreamCodec<ByteBuf, SnapshotLockValue> STREAM_CODEC = StreamCodec.of(
+            (buffer, value) -> {
+                PROBE.run();
+                ByteBufCodecs.INT.encode(buffer, value.value());
+            },
+            buffer -> new SnapshotLockValue(ByteBufCodecs.INT.decode(buffer))
         );
     }
 
@@ -630,7 +796,7 @@ class SyncedConfigTest {
         );
     }
 
-    @Config(name = "wire-types", sync = true)
+    @Config(name = "wire-types", sync = SyncMode.ENABLED)
     public static class WireTypesConfig {
         public boolean flag = true;
         public byte tiny = 1;
@@ -644,12 +810,12 @@ class SyncedConfigTest {
         public Mood mood = Mood.BRIGHT;
     }
 
-    @Config(name = "vanilla-codec", sync = true)
+    @Config(name = "vanilla-codec", sync = SyncMode.ENABLED)
     public static class VanillaCodecConfig {
         public IntRange range = new IntRange(2, 8);
     }
 
-    @Config(name = "collection-wire", sync = true)
+    @Config(name = "collection-wire", sync = SyncMode.ENABLED)
     public static class CollectionWireConfig {
         public List<String> labels = new ArrayList<>();
         public Map<String, Integer> weights = new LinkedHashMap<>();
@@ -660,10 +826,31 @@ class SyncedConfigTest {
     @Config(name = "partial-sync")
     public static class PartiallySyncedConfig {
 
-        @Entry(sync = true)
+        @Entry(sync = SyncMode.ENABLED)
         public int shared = 1;
 
         public String private_ = "local";
+    }
+
+    @Config(name = "dependent-restart", sync = SyncMode.ENABLED)
+    public static class DependentRestartConfig implements ConfigExtension {
+        @Entry(restart = true)
+        public int poolSize = 8;
+        public int workers = 4;
+
+        @Override
+        public void validate(List<Violation> violations) {
+            if (workers > poolSize) {
+                violations.add(Violation.of("workers.capacity", "Workers exceed the active pool capacity"));
+            }
+        }
+    }
+
+    @Config(name = "strict-restart", sync = SyncMode.ENABLED, restartSyncPolicy = RestartSyncPolicy.DISCONNECT)
+    public static class StrictRestartConfig {
+        @Entry(restart = true)
+        public int restartValue = 8;
+        public int immediate = 1;
     }
 
 }

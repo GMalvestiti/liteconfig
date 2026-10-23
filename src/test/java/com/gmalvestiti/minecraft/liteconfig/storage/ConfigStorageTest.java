@@ -1,6 +1,8 @@
 package com.gmalvestiti.minecraft.liteconfig.storage;
 
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,42 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConfigStorageTest {
+
+    @Config(name = "world", type = ConfigType.WORLD)
+    static class WorldConfig {
+        public int value = 3;
+    }
+
+    @Test
+    void testInactiveWorldStorageNeverTouchesInstallationOrWorldFiles(@TempDir Path tempDir) throws IOException {
+        Path installation = tempDir.resolve("installation");
+        Path world = tempDir.resolve("world");
+        ConfigPathResolver resolver = new ConfigPathResolver(
+            installation, TestFixtures.SCOPE, new ConfigFileOwnership());
+        ConfigStorage<WorldConfig> storage = new ConfigStorage<>(WorldConfig.class, resolver, TestFixtures.SCOPE);
+
+        storage.write(new WorldConfig());
+        storage.backupCorrupted();
+        assertNull(storage.read());
+        assertFalse(Files.exists(installation));
+        assertFalse(Files.exists(world));
+
+        resolver.bindWorld(WorldConfig.class, world);
+        storage.write(new WorldConfig());
+        Path file = world.resolve("liteconfig").resolve(TestFixtures.SCOPE.modId()).resolve("world.json5");
+        assertTrue(Files.exists(file));
+        assertFalse(Files.exists(installation));
+        assertEquals(3, storage.read().value);
+
+        String before = Files.readString(file);
+        resolver.bindWorld(WorldConfig.class, null);
+        WorldConfig changed = new WorldConfig();
+        changed.value = 9;
+        storage.write(changed);
+        storage.backupCorrupted();
+        assertNull(storage.read());
+        assertEquals(before, Files.readString(file));
+    }
 
     @Test
     void testReadsMissingAsNull(@TempDir Path tempDir) {

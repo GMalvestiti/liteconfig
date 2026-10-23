@@ -4,9 +4,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-final class DeclaredCallback {
+final class DeclaredListener {
 
-    private DeclaredCallback() {}
+    private DeclaredListener() {}
 
     static Resolution resolve(Field field, String name) {
         Class<?> expectedType = boxed(field.getType());
@@ -60,7 +60,7 @@ final class DeclaredCallback {
             case "float" -> Float.class;
             case "double" -> Double.class;
             default -> throw new IllegalArgumentException(
-                "Unsupported primitive callback type: " + type);
+                "Unsupported primitive listener type: " + type);
         };
     }
 

@@ -3,6 +3,7 @@ package com.gmalvestiti.minecraft.liteconfig.metadata;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
@@ -61,6 +62,26 @@ class ConfigMetadataSyncTest {
     }
 
     @Test
+    void inheritsThroughUnannotatedAndCommentOnlyFieldsAndHonorsDisabledSubtrees() {
+        ConfigMetadata metadata = metadataOf(InheritedModes.class);
+
+        assertEquals(
+            List.of("commented", "enabled.commented", "enabled.inherited", "enabled.selected",
+                "enabled.unannotated", "inherited", "unannotated"),
+            paths(metadata.synced()));
+        assertFalse(metadata.property("disabled").orElseThrow().sync());
+        assertFalse(metadata.property("disabled.selected").orElseThrow().sync());
+        assertFalse(metadata.property("enabled.local").orElseThrow().sync());
+        assertEquals(SyncMode.INHERIT, DeclaredConfig.of(InheritedModes.class).property("commented").sync());
+        assertEquals(SyncMode.INHERIT, DeclaredConfig.of(InheritedModes.class).property("unannotated").sync());
+    }
+
+    @Test
+    void inheritedModeStaysLocalWithoutAnEnabledParentButDescendantsCanOptIn() {
+        assertEquals(List.of("section.selected"), paths(metadataOf(LocalModes.class).synced()));
+    }
+
+    @Test
     void testRejectsInvalidPersistedNamesBeforePublishingSyncMetadata() {
         LiteConfigException failure = assertThrows(
             LiteConfigException.class, () -> metadataOf(InvalidSyncedEntryConfig.class));
@@ -78,7 +99,37 @@ class ConfigMetadataSyncTest {
 
     @Config(name = "invalid-synced-entry")
     static class InvalidSyncedEntryConfig {
-        @Entry(name = "section.value", sync = true)
+        @Entry(name = "section.value", sync = SyncMode.ENABLED)
         int value;
+    }
+
+    @Config(name = "inherited-modes", sync = SyncMode.ENABLED)
+    static class InheritedModes {
+        @Entry(comment = "A comment must not disable synchronization.")
+        int commented;
+        @Entry(sync = SyncMode.INHERIT)
+        int inherited;
+        int unannotated;
+        @Entry(sync = SyncMode.DISABLED)
+        ModeSection disabled = new ModeSection();
+        @Entry(sync = SyncMode.ENABLED)
+        ModeSection enabled = new ModeSection();
+    }
+
+    @Config(name = "local-modes")
+    static class LocalModes {
+        ModeSection section = new ModeSection();
+    }
+
+    static class ModeSection {
+        @Entry(comment = "Inherits the parent section.")
+        int commented;
+        @Entry(sync = SyncMode.INHERIT)
+        int inherited;
+        int unannotated;
+        @Entry(sync = SyncMode.DISABLED)
+        int local;
+        @Entry(sync = SyncMode.ENABLED)
+        int selected;
     }
 }

@@ -1,7 +1,10 @@
 package com.gmalvestiti.minecraft.liteconfig.api.annotations;
 
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigFormat;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.api.FailurePolicy;
+import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.StateClonerImplementation;
 
@@ -18,7 +21,7 @@ import java.lang.annotation.Target;
  * fields are skipped; every other instance field is persisted. Such a field must be non-final
  * and reflectively accessible, or holder creation fails. It may use a built-in supported type or
  * an exact type registered with a custom codec, but it must not be typed with another
- * {@code @Config} class. Each registration owns exactly one file:
+ * {@code @Config} class. Each locally active registration owns one file at a time:
  *
  * <pre>{@code
  * @Config(name = "mymod")
@@ -28,21 +31,21 @@ import java.lang.annotation.Target;
  * }
  * }</pre>
  *
- * <p>The file is {@code <baseDir>/<path>/<name><extension>}: {@link #path()} contributes only
+ * <p>The file is {@code <baseDir>/<modId>/<path>/<name><extension>}: {@link #path()} contributes only
  * directories, {@link #name()} contributes only the file, {@link #format()} contributes the
  * extension, and {@code baseDir} is the platform config directory unless
  * {@code ConfigBuilder.baseDir(...)} overrides it. The example above resolves to
- * {@code config/mymod.json5}.
+ * {@code config/<modId>/mymod.json5}. {@link #modIdDirectory()} can disable the mod id directory shorthand.
  *
- * <p>Name the file after your mod. The owning mod id is <em>not</em> part of the path, so a
- * generic {@code name} such as {@code "config"} or {@code "client"} in the shared config root
- * collides with whichever other mod picked it first, and the second holder to be created fails
- * with {@code ConfigError.CONFLICTING_CONFIG_PATH}:
+ * <p>{@link ConfigType#WORLD} uses {@code <world>/liteconfig} instead of the instance
+ * config directory. Before a world loads, its holder exposes defaults without accessing a file.
+ * Disabling mod-id scoping requires choosing a unique name or path; conflicting file ownership
+ * is rejected with {@code ConfigError.CONFLICTING_CONFIG_PATH}.
  *
  * <pre>{@code
- * @Config(name = "mymod")                     // config/mymod.json5        — one file
- * @Config(name = "client", path = "mymod")    // config/mymod/client.json5 — several files
- * @Config(name = "client")                    // config/client.json5       — avoid: not yours alone
+ * @Config(name = "settings")                         // config/<modId>/settings.json5
+ * @Config(name = "client", path = "gui")              // config/<modId>/gui/client.json5
+ * @Config(name = "mymod", modIdDirectory = false)     // config/mymod.json5
  * }</pre>
  */
 @Target(ElementType.TYPE)
@@ -50,10 +53,48 @@ import java.lang.annotation.Target;
 public @interface Config {
 
     /**
+     * Chooses instance or world ownership; it does not enable synchronization.
+     *
+     * @return the ownership type
+     */
+    ConfigType type() default ConfigType.SERVER;
+
+    /**
+     * Places this file inside its owning mod's directory.
+     *
+     * @return {@code true} to resolve {@code <baseDir>/<modId>/<path>/<name>}
+     */
+    boolean modIdDirectory() default true;
+
+    /**
+     * Refuses explicit loads and updates through every holder of this config.
+     *
+     * <p>This is a registration-wide rule, not a choice made by an individual builder.
+     * {@code load()} follows {@link #readFailurePolicy()}, while {@code update(...)} and
+     * {@code updateAndSave(...)} follow {@link #updateFailurePolicy()}: strict policies throw,
+     * fallback policies skip the load or return a rejected update. Creating another holder
+     * cannot bypass this rule.
+     *
+     * <p>Initialization still loads persisted values, and remote synchronization may still
+     * publish server values. {@code save()} remains available for active, locally owned state.
+     * Published values must always be treated as read-only, regardless of this setting.
+     *
+     * <pre>{@code
+     * @Config(name = "settings", readOnly = true)
+     * public final class Settings {
+     *     public int hudScale = 2;
+     * }
+     * }</pre>
+     *
+     * @return {@code true} to refuse explicit loads and updates for the registration
+     */
+    boolean readOnly() default false;
+
+    /**
      * Names the config file, and nothing else.
      *
      * <p>Exactly one file-name component — never a directory, and the only place the file name
-     * comes from. Name it after your mod, since the config root is shared with every other mod.
+     * comes from. With mod-id scoping enabled, short names are isolated from other mods.
      * The extension of the declared {@link #format()} is appended when missing, ignoring case:
      *
      * <pre>{@code
@@ -73,24 +114,24 @@ public @interface Config {
     /**
      * Names the directories that contain the file, and nothing else.
      *
-     * <p>A relative, {@code /}-separated directory path resolved under the config directory —
+     * <p>A relative directory path resolved under the owning mod directory —
      * never a file name and never a file extension. Empty by default, which puts the file
-     * straight in the config root; give it your mod id once you own more than one file. Missing
+     * straight in the mod directory (or base directory when scoping is disabled). Missing
      * directories are created on the first save:
      *
      * <pre>{@code
-     * path = "",       name = "mymod"   -> config/mymod.json5            // one file
-     * path = "mymod",  name = "client"  -> config/mymod/client.json5    // several files
-     * path = "mymod/gui", name = "hud" -> config/mymod/gui/hud.json5
+     * path = "",       name = "settings" -> config/<modId>/settings.json5
+     * path = "gui",    name = "client"   -> config/<modId>/gui/client.json5
+     * path = "gui/hud", name = "hud"     -> config/<modId>/gui/hud/hud.json5
      *
      * // Wrong: the file name belongs in name(), so this creates a directory called client.json5
-     * path = "mymod/client.json5" -> config/mymod/client.json5/client.json5
+     * path = "client.json5" -> config/<modId>/client.json5/client.json5
      * }</pre>
      *
-     * <p>Absolute paths, and relative ones that escape the config root once normalized, are
+     * <p>Absolute paths, and relative ones that escape the selected mod/base directory, are
      * rejected with {@code ConfigError.INVALID_CONFIG_PATH}.
      *
-     * @return a relative directory path, or {@code ""} for the configured base directory
+     * @return a relative directory path, or {@code ""} for the selected mod/base directory
      */
     String path() default "";
 
@@ -101,8 +142,8 @@ public @interface Config {
      * {@link ConfigFormat#TOML} writes TOML instead. The config class itself does not change:
      *
      * <pre>{@code
-     * @Config(name = "mymod")                              // config/mymod.json5
-     * @Config(name = "mymod", format = ConfigFormat.TOML)  // config/mymod.toml
+     * @Config(name = "settings")                              // config/<modId>/settings.json5
+     * @Config(name = "settings", format = ConfigFormat.TOML)   // config/<modId>/settings.toml
      * }</pre>
      *
      * <p>Decide before shipping. Changing the format later changes the file name, so the old
@@ -195,7 +236,7 @@ public @interface Config {
      * on when its values describe rules clients have to render or enforce:
      *
      * <pre>{@code
-     * @Config(name = "rules", sync = true)
+     * @Config(name = "rules", sync = SyncMode.ENABLED)
      * public final class RulesConfig {
      *     public int maxTeamSize = 4;
      *     public boolean friendlyFire = false;
@@ -203,15 +244,41 @@ public @interface Config {
      * }</pre>
      *
      * <p>For a config that shares only a value or two, leave this alone and mark those fields
-     * with {@link Entry#sync()} instead.
+     * with {@link Entry#sync()} instead. With config-wide sync, use
+     * {@code @Entry(sync = SyncMode.DISABLED)} for local exceptions, including entire nested sections.
+     * {@link ConfigType#CLIENT} is always local; {@link ConfigType#WORLD} can synchronize only
+     * while a server owns an active world.
+     *
+     * <p>Only {@link SyncMode#ENABLED} and {@link SyncMode#DISABLED} are valid here.
+     * {@link SyncMode#INHERIT} is a field-only mode: a root has no parent to inherit from.
+     * Using it here fails model creation before any storage file is written.
      *
      * <p>Values travel one way, from the server to its clients: a client's own config never
      * reaches a server, which would want a command or a screen for that anyway. The file itself
      * lives where every other config file lives, under the name and path declared here.
      *
-     * @return {@code true} to send every value of this config to connected clients
+     * @return the root selection, {@link SyncMode#DISABLED} by default
      */
-    boolean sync() default false;
+    SyncMode sync() default SyncMode.DISABLED;
+
+    /**
+     * Chooses whether clients may stay connected while synced restart-only values differ.
+     *
+     * <p>The default keeps the current active values and exposes the desired settings through
+     * {@code ConfigHolder.pending()}. Choose {@link RestartSyncPolicy#DISCONNECT} when those
+     * settings must be active to play:
+     *
+     * <pre>{@code
+     * @Config(name = "rules", sync = SyncMode.ENABLED, restartSyncPolicy = RestartSyncPolicy.DISCONNECT)
+     * public final class Rules {
+     *     @Entry(restart = true)
+     *     public boolean customMovement = true;
+     * }
+     * }</pre>
+     *
+     * @return how to handle a valid remote snapshot whose restart-only settings differ
+     */
+    RestartSyncPolicy restartSyncPolicy() default RestartSyncPolicy.DEFER;
 
     /**
      * Declares which revision of this config the class expects, enabling migrations.

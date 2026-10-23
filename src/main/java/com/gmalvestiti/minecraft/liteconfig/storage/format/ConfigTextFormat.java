@@ -7,13 +7,13 @@ import com.google.gson.JsonObject;
  * Turns config trees into file text and back, for one {@link ConfigFormat}.
  *
  * <p>An implementation owns the text format and nothing else: storage handles files, missing files, atomic
- * replacement, and failure attribution, {@code ConfigBinder} handles the object binding,
+ * replacement, and failure attribution, {@code ConfigSerialization} handles the object binding,
  * and migrations run on the tree in between. What is left here is the tree-to-text
  * step, plus writing the comments declared with {@code @Config} and {@code @Entry}.
  *
  * <pre>{@code
  * ConfigTextFormat format = ConfigTextFormat.of(ConfigFormat.TOML);
- * String text = format.writeTree(ConfigBinder.toTree(config).getAsJsonObject(), MyModConfig.class);
+ * String text = format.writeTree(ConfigSerialization.toTree(config).getAsJsonObject(), MyModConfig.class);
  * JsonObject parsed = format.readTree(text);
  * }</pre>
  *

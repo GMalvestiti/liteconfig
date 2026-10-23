@@ -41,9 +41,10 @@ import java.util.stream.Stream;
  *                     properties and fields that default to {@code null}
  * @param comment the lines declared with {@link Entry#comment()}, empty when undocumented
  * @param translationKey the key from {@link Entry#translationKey()}, empty when unset
- * @param restart whether {@link Entry#restart()} forbids runtime changes
+ * @param restart whether {@link Entry#restart()} defers changes until the ownership scope restarts
  * @param sync whether this value travels from the server to connected clients, resolved from
- *             {@link Config#sync()} and {@link Entry#sync()}; {@code false} unless something
+ *             {@link Config#sync()} and {@link Entry#sync()}; a disabled enclosing section
+ *             overrides inherited or explicitly enabled sync; {@code false} unless something
  *             asked for it
  * @param constraints the rules this value must satisfy; {@link ConfigConstraints#isEmpty()} when free
  * @param children the properties of a nested config object, empty for a plain value
@@ -86,9 +87,7 @@ public record ConfigProperty(
      */
     @Override
     public Object defaultValue() {
-        return defaultValue != null && defaultValue.getClass().isArray()
-            ? immutableArray(defaultValue)
-            : defaultValue;
+        return immutableDefault(defaultValue);
     }
 
     /**
@@ -109,29 +108,29 @@ public record ConfigProperty(
             return immutableArray(value);
         }
 
-        if (value instanceof List<?> values) {
-            List<Object> copy = new ArrayList<>(values.size());
-            values.forEach(element -> copy.add(immutableDefault(element)));
-            return Collections.unmodifiableList(copy);
-        }
-
-        if (value instanceof Set<?> values) {
-            Set<Object> copy = new LinkedHashSet<>(values.size());
-            values.forEach(element -> copy.add(immutableDefault(element)));
-            return Collections.unmodifiableSet(copy);
-        }
-
-        if (value instanceof Map<?, ?> values) {
-            Map<Object, Object> copy = new LinkedHashMap<>(values.size());
-            values.forEach((key, element) ->
-                copy.put(immutableDefault(key), immutableDefault(element)));
-            return Collections.unmodifiableMap(copy);
-        }
-
-        if (value instanceof Collection<?> values) {
-            List<Object> copy = new ArrayList<>(values.size());
-            values.forEach(element -> copy.add(immutableDefault(element)));
-            return Collections.unmodifiableCollection(copy);
+        switch (value) {
+            case List<?> values -> {
+                List<Object> copy = new ArrayList<>(values.size());
+                values.forEach(element -> copy.add(immutableDefault(element)));
+                return Collections.unmodifiableList(copy);
+            }
+            case Set<?> values -> {
+                Set<Object> copy = new LinkedHashSet<>(values.size());
+                values.forEach(element -> copy.add(immutableDefault(element)));
+                return Collections.unmodifiableSet(copy);
+            }
+            case Map<?, ?> values -> {
+                Map<Object, Object> copy = new LinkedHashMap<>(values.size());
+                values.forEach((key, element) ->
+                    copy.put(immutableDefault(key), immutableDefault(element)));
+                return Collections.unmodifiableMap(copy);
+            }
+            case Collection<?> values -> {
+                List<Object> copy = new ArrayList<>(values.size());
+                values.forEach(element -> copy.add(immutableDefault(element)));
+                return Collections.unmodifiableCollection(copy);
+            }
+            default -> {}
         }
 
         return value;
@@ -141,13 +140,20 @@ public record ConfigProperty(
         int length = Array.getLength(source);
         Object copy = Array.newInstance(source.getClass().getComponentType(), length);
 
-        if (source.getClass().getComponentType().isPrimitive()) {
-            System.arraycopy(source, 0, copy, 0, length);
-            return copy;
-        }
-
         for (int index = 0; index < length; index++) {
-            Array.set(copy, index, immutableDefault(Array.get(source, index)));
+            Object value = immutableDefault(Array.get(source, index));
+            Class<?> component = source.getClass().getComponentType();
+
+            if (value != null && !component.isInstance(value)) {
+                switch (value) {
+                    case List<?> list when component.isAssignableFrom(ArrayList.class) -> value = new ArrayList<>(list);
+                    case Set<?> set when component.isAssignableFrom(LinkedHashSet.class) -> value = new LinkedHashSet<>(set);
+                    case Map<?, ?> map when component.isAssignableFrom(LinkedHashMap.class) -> value = new LinkedHashMap<>(map);
+                    default -> {}
+                }
+            }
+
+            Array.set(copy, index, value);
         }
 
         return copy;

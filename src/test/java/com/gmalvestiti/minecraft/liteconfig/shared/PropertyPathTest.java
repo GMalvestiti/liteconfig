@@ -45,16 +45,4 @@ class PropertyPathTest {
         assertThrows(IllegalArgumentException.class, () -> PropertyPath.child("display.", "hud"));
     }
 
-    @Test
-    void testReturnsTheLastPathStep() {
-        assertEquals("scale", PropertyPath.last(new String[] {"display", "hud", "scale"}));
-    }
-
-    @Test
-    void testRejectsMissingOrBlankLastSteps() {
-        assertThrows(NullPointerException.class, () -> PropertyPath.last(null));
-        assertThrows(IllegalArgumentException.class, () -> PropertyPath.last(new String[0]));
-        assertThrows(NullPointerException.class, () -> PropertyPath.last(new String[] {null}));
-        assertThrows(IllegalArgumentException.class, () -> PropertyPath.last(new String[] {" "}));
-    }
 }

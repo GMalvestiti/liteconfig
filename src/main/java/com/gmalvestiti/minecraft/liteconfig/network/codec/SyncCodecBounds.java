@@ -24,9 +24,4 @@ final class SyncCodecBounds {
         }
     }
 
-    static void requireLongArrayReadable(ByteBuf buffer, int bytes) {
-        if (buffer.readableBytes() < bytes) {
-            throw new DecoderException("Truncated synced long array: expected " + bytes + " bytes, found " + buffer.readableBytes());
-        }
-    }
 }

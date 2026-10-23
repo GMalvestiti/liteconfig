@@ -3,14 +3,15 @@
 Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric and NeoForge. Annotate any Java class with @Config and pass it to a builder to get a ConfigHolder that automatically manages file resolution, safe I/O, lifecycle events, sync, and more.
 
 **Features:**
-* **Data layer:** Handles JSON5/TOML formats, paths, default values, atomic writes, and automatic corruption recovery.
-* **State Management:** Provides validated snapshots, deep copies, runtime updates, and custom state cloning.
-* **Thread-Safe Reads:** Read a config from any thread without locking or copying.
+* **Files:** Read and write JSON5 or TOML, with defaults and recovery from damaged files.
+* **Updates:** Validate changes and provide copies when you need to edit config data.
+* **Flexible reads:** Read the current config from any thread.
+* **Ownership:** Choose client/server settings or world-owned settings.
 * **Opt-In Network Sync:** Automatically synchronizes marked configs or individual fields from server to client.
-* **Restart Guards:** Blocks runtime updates and defers synchronized changes for fields requiring a game restart.
+* **Restart settings:** CLIENT changes wait for game startup; WORLD changes apply when that world loads again; SERVER restart settings take effect after a game restart.
 * **Custom Update API:** `update` and `updateAndSave` return an `UpdateResult` with acceptance status and validation violations.
 * **Failure Policies:** Granular control over read, write, and update errors, from graceful fallbacks to strict exceptions.
-* **Lifecycle Hooks:** Event listeners for load, save, and update phases, plus config-level normalization and validation hooks.
+* **Lifecycle Events and Hooks:** Synchronous load, save, and update events, plus config-level normalization and validation hooks.
 * **Declared constraints:** Enforces numeric bounds, string patterns, and collection sizes, and more via annotations on load/update.
 * **Runtime Metadata:** Access every field's path, type, default, comment, translation key, and constraints at runtime.
 * **Version Migrations:** Uses stamped file revisions to upgrade older configs step-by-step without losing player data.
@@ -23,26 +24,25 @@ Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric a
 
 ## Setup
 
-Artifacts are published to Maven Central under the group `com.gmalvestiti.minecraft`, with one
-artifact per loader:
+Lite Config is published to Maven Central under `com.gmalvestiti.minecraft`, with one artifact per
+loader:
 
-| Loader   | Artifact              |
-|----------|-----------------------|
-| Fabric   | `liteconfig-fabric`   |
+| Loader | Artifact |
+|---|---|
+| Fabric | `liteconfig-fabric` |
 | NeoForge | `liteconfig-neoforge` |
 
-Maven versions include the Lite Config version and the Minecraft build target:
+Version numbers include both the Lite Config version and the Minecraft target:
 
-| Minecraft        | Lite Config     |
-|------------------|-----------------|
-| `1.21`-`1.21.10` | `1.3.0-1.21`    |
-| `1.21.11`        | `1.3.0-1.21.11` |
-| `26.1`-`latest`  | `1.3.0-26.1`    |
+| Minecraft | Lite Config |
+|---|---|
+| `1.21`-`1.21.10` | `1.2.0-1.21` |
+| `1.21.11` | `1.2.0-1.21.11` |
+| `26.1`-`latest` | `1.2.0-26.1` |
 
-The examples below target the `1.21` build.
+The examples below use the `1.21` build.
 
-<details>
-<summary><b>Fabric</b></summary>
+## Fabric
 
 ```groovy
 repositories {
@@ -50,23 +50,21 @@ repositories {
 }
 
 dependencies {
-    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.3.0-1.21'
+    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.2.0-1.21'
 }
 ```
 
-Declare the dependency so the loader refuses to start without it:
+Declare the dependency in `fabric.mod.json` so Fabric refuses to load the mod without Lite Config:
 
 ```json
 {
   "depends": {
-    "liteconfig": ">=1.3.0-1.21"
+    "liteconfig": ">=1.2.0-1.21"
   }
 }
 ```
-</details>
 
-<details>
-<summary><b>NeoForge</b></summary>
+## NeoForge
 
 ```groovy
 repositories {
@@ -74,7 +72,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.3.0-1.21'
+    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.2.0-1.21'
 }
 ```
 
@@ -84,46 +82,26 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.3.0,)"
+versionRange = "[1.2.0,)"
 ordering = "NONE"
 side = "BOTH"
 ```
-</details>
 
 ## Quickstart
 
-The builder creates either a mutable or read-only holder:
-
-| Builder call | Behavior | Best fit |
-|---|---|---|
-| `create()` | Allows loads and updates | Regular runtime config |
-| `readOnly().create()` | Refuses loads and updates | Config a mod reads but never changes |
-
-Declare the config class. Initialize persisted fields to their defaults and provide a public
-no-argument constructor:
+Start with one plain config class. Give each persisted field a default value.
 
 ```java
-@Config(name = "mymod") // format defaults to JSON5
+@Config(name = "mymod", type = ConfigType.CLIENT) // JSON5, mod-id-scoped path by default
 public final class MyModConfig {
     public boolean showHints = true;
     public int hudScale = 2;
 }
 ```
 
-or for TOML:
+To use TOML instead, add `format = ConfigFormat.TOML` to `@Config`.
 
-```java
-@Config(name = "mymod", format = ConfigFormat.TOML)
-public final class MyModConfig {
-    public boolean showHints = true;
-    public int hudScale = 2;
-}
-```
-
-Create the holder once during mod initialization and keep it for the lifetime of the mod. `create()`
-resolves the file path, validates the model, loads any existing file (or writes the defaults if
-none exists), and validates the loaded state — the holder is ready to read immediately after it
-returns:
+Create one holder during mod initialization and keep it for the life of the mod:
 
 ```java
 public final class MyMod implements ModInitializer {
@@ -134,39 +112,82 @@ public final class MyMod implements ModInitializer {
 }
 ```
 
-Read through `data()`, mutate through `update` / `updateAndSave`:
+or in the config class itself:
+
+```java
+@Config(name = "mymod", type = ConfigType.CLIENT)
+public final class MyModConfig {
+    public boolean showHints = true;
+    public int hudScale = 2;
+
+    public static final ConfigHolder<MyModConfig> HOLDER;
+    
+    static {
+        HOLDER = LiteConfig.holder(MyModConfig.class)
+            .modId("mymod")
+            .create();
+    }
+}
+```
+
+`create()` validates the config model and loads active local settings, or writes defaults if the
+file does not exist yet.
+
+Holders can be created before the game starts. Keep constructors, migrations and custom state
+cloners independent of Minecraft's runtime state.
+
+Read the current published state with `data()`:
 
 ```java
 if (MyMod.CONFIG.data().showHints) {
     // ...
 }
-
-MyMod.CONFIG.updateAndSave(config -> config.hudScale = 3);
 ```
 
-That writes `config/mymod.json5`:
+Apply runtime changes with `update(...)` or `updateAndSave(...)`:
+
+```java
+MyMod.CONFIG.update(config -> config.hudScale = 3);        // memory only
+MyMod.CONFIG.updateAndSave(config -> config.hudScale = 4); // memory + disk
+```
+
+Treat `data()` and its nested values as read-only. Use `copy()` when you need to edit a separate copy.
+
+If a change is invalid, Lite Config rejects it and keeps the current state:
+
+```java
+UpdateResult result = MyMod.CONFIG.update(config -> config.hudScale = 99);
+if (!result.accepted()) {
+    result.violations().forEach(v -> LOGGER.warn("{}: {}", v.id(), v.message()));
+}
+```
+
+The saved JSON5 file looks like this:
 
 ```json5
 {
   "showHints": true,
-  "hudScale": 3
+  "hudScale": 4
 }
 ```
 
 ## Full Configuration Example
 
-
 ```java
 @Config(
     name = "mymodfile",
     path = "mymoddir1/mymoddir2",
-    format = ConfigFormat.JSON5,
+    type = ConfigType.SERVER,
+    modIdDirectory = true,
+    readOnly = false,
+    format = ConfigFormat.JSON,
     comment = "MyMod settings.",
     version = 3,
     stateCloner = MyModConfigCloner.class,
     readFailurePolicy = FailurePolicy.FALLBACK,
     writeFailurePolicy = FailurePolicy.STRICT,
-    updateFailurePolicy = FailurePolicy.FALLBACK
+    updateFailurePolicy = FailurePolicy.FALLBACK,
+    restartSyncPolicy = RestartSyncPolicy.DISCONNECT
 )
 public final class MyModConfig implements ConfigExtension {
 
@@ -174,13 +195,17 @@ public final class MyModConfig implements ConfigExtension {
         name = "hud_scale",
         comment = "Scale of the HUD, from 1 to 4.",
         translationKey = "mymod.config.hud_scale",
-        sync = true,
-        callback = "onHudScaleChanged"
+        sync = SyncMode.ENABLED,
+        listener = "onHudScaleChanged"
     )
     @Range(min = 1, max = 4)
     public int hudScale = 2;
 
-    @Entry(comment = "Rendering backend. Applied after the next restart.", restart = true)
+    @Entry(
+        comment = "Rendering backend. Applied after the next restart.",
+        restart = true,
+        sync = SyncMode.ENABLED
+    )
     public Renderer renderer = Renderer.DEFAULT;
 
     @AllowedValues({"mysql", "sqlite"})
@@ -193,7 +218,7 @@ public final class MyModConfig implements ConfigExtension {
     public String profileName = "default";
 
     @NotNull
-    @Entry(comment = "Server-owned spawn range.", sync = true)
+    @Entry(comment = "Server-owned spawn range.", sync = SyncMode.ENABLED)
     public IntRange spawnRange = new IntRange(1, 12);
 
     public Display display = new Display();
@@ -275,12 +300,13 @@ public record IntRange(int minimum, int maximum) {
 }
 
 // Custom config state cloner
-public static final class Cloner implements StateCloner<MyModConfig> {
+public final class MyModConfigCloner implements StateCloner<MyModConfig> {
     @Override
     public MyModConfig copy(MyModConfig source) {
         MyModConfig copy = new MyModConfig();
         copy.hudScale = source.hudScale;
         copy.renderer = source.renderer;
+        copy.database = source.database;
         copy.profileName = source.profileName;
         copy.spawnRange = source.spawnRange;
         copy.display = copyDisplay(source.display);
@@ -290,11 +316,11 @@ public static final class Cloner implements StateCloner<MyModConfig> {
         return copy;
     }
 
-    private static Display copyDisplay(Display source) {
+    private static MyModConfig.Display copyDisplay(MyModConfig.Display source) {
         if (source == null) {
             return null;
         }
-        Display copy = new Display();
+        MyModConfig.Display copy = new MyModConfig.Display();
         copy.showHints = source.showHints;
         copy.hiddenHints = source.hiddenHints == null
             ? null
@@ -304,11 +330,8 @@ public static final class Cloner implements StateCloner<MyModConfig> {
 }
 ```
 
-Register custom codecs while creating a holder. Registrations use the shared process-wide registry
-and are not bound to that holder or config. The `Codec` controls JSON5/TOML persistence and state
-copying; if it rejects a value, Lite Config falls back to reflective serialization for that use.
-The `StreamCodec` controls synchronization. Lite Config's loader entrypoints handle the packets,
-handshake, batching, and server broadcasts.
+Register a custom `Codec` for file persistence and state copying, and a `StreamCodec` for
+synchronization.
 
 ```java
 public final class MyMod implements ModInitializer {
@@ -317,19 +340,12 @@ public final class MyMod implements ModInitializer {
             .registerCodec(IntRange.class, IntRange.CODEC)
             .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC))
         .modId("mymod")
-        .onLoad(ConfigSide.SERVER, state -> System.out.println("Loaded profile " + state.profileName))
-        .onUpdate(ConfigSide.BOTH, state -> System.out.println("HUD scale is now " + state.hudScale))
-        .onSave(ConfigSide.SERVER, state -> System.out.println("Saved MyMod config"))
+        .onUpdate(state -> System.out.println("HUD scale is now " + state.hudScale))
+        .onSave(state -> System.out.println("Saved MyMod config"))
         .create();
 
     @Override
     public void onInitialize() {
-        // As an alternative to the holder's codec registration above.
-        // IntRange is only used here as an example, Lite Config supports objects with built-in codecs such as integers out of the box.
-        LiteConfig.codecs()
-            .registerCodec(IntRange.class, IntRange.CODEC)
-            .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC);
-        
         // Fast shared read. Treat the returned object as read-only.
         int currentScale = config.data().hudScale;
 
@@ -354,8 +370,6 @@ public final class MyMod implements ModInitializer {
             state.spawnRange = new IntRange(2, 24)
         );
         System.out.println("Saved: " + saved.accepted());
-        
-        // Both update and updateAndSave broadcast synced values after acceptance.
 
         // Structural metadata for screens, commands, generated help, etc.
         config.metadata().flatten().forEach(property ->
@@ -364,7 +378,10 @@ public final class MyMod implements ModInitializer {
 }
 ```
 
-The first `create()` loads `config/mymoddir1/mymoddir2/mymodfile.json5`, migrates older revisions in order, validates
-the result, and writes the accepted state back. A file without `configVersion` starts at version 1.
-Only `hud_scale` and `spawnRange` are synchronized because they opt in with `sync = true`; the other
-values remain local. Use `@Config(sync = true)` instead when every persisted leaf is server-owned.
+The first `create()` loads `config/mymod/mymoddir1/mymoddir2/mymodfile.json5`, applies migrations,
+validates the result, and saves it. Files without `configVersion` start at version 1.
+
+Only `hud_scale`, `renderer`, and `spawnRange` sync because they opt in with `SyncMode.ENABLED`.
+
+Built-in values include primitives and wrappers, enums, arrays, typed `List`/`Set`/`Map` collections,
+`UUID`, `BigInteger`, `BigDecimal`, `Duration`, `Instant`, `LocalDate`, `LocalTime`, and `LocalDateTime`.

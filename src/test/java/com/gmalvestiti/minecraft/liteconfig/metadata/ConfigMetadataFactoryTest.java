@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.EntryNormalization;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -62,6 +64,16 @@ class ConfigMetadataFactoryTest {
     }
 
     @Test
+    void testReturnsIndependentCopiesOfPrimitiveArrayDefaults() {
+        ConfigProperty property = propertyOf(PrimitiveArrayDefault.class, "values");
+
+        int[] first = (int[]) property.defaultValue();
+        first[0] = 9;
+
+        assertArrayEquals(new int[] {1, 2}, (int[]) property.defaultValue());
+    }
+
+    @Test
     void testPublishesTheDeclaredRange() {
         ConfigProperty property = propertyOf(TestFixtures.ConstrainedConfig.class, "hudScale");
 
@@ -103,6 +115,7 @@ class ConfigMetadataFactoryTest {
         ConfigProperty property = propertyOf(TestFixtures.ConstrainedConfig.class, "mode");
 
         assertEquals(List.of("LOW", "MEDIUM", "HIGH"), property.constraints().allowedValues());
+        assertFalse(property.constraints().trim());
     }
 
     @Test
@@ -110,6 +123,18 @@ class ConfigMetadataFactoryTest {
         ConfigProperty property = propertyOf(DatabaseConfig.class, "database");
 
         assertEquals(List.of("mysql", "sqlite"), property.constraints().allowedValues());
+    }
+
+    @Test
+    void normalizesMetadataDefaultsAndChoicesUsingTheDeclaredMode() {
+        ConfigMetadata metadata = metadataOf(NormalizedDefaults.class);
+        assertEquals("sqlite", metadata.property("database").orElseThrow().defaultValue());
+        assertEquals(List.of("mysql", "sqlite"),
+            metadata.property("database").orElseThrow().constraints().allowedValues());
+        assertEquals("SAFE", metadata.property("mode").orElseThrow().defaultValue());
+        assertEquals(List.of("FAST", "SAFE"),
+            metadata.property("mode").orElseThrow().constraints().allowedValues());
+        assertEquals("CuStOm", metadata.property("preserved").orElseThrow().defaultValue());
     }
 
     @Test
@@ -233,10 +258,25 @@ class ConfigMetadataFactoryTest {
             LiteConfigException.class, () -> metadataOf(EmptyAllowedValuesConfig.class));
         LiteConfigException duplicateFailure = assertThrows(
             LiteConfigException.class, () -> metadataOf(DuplicateAllowedValuesConfig.class));
+        LiteConfigException trimmedDuplicateFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(TrimmedDuplicateAllowedValuesConfig.class));
+        LiteConfigException normalizedDuplicateFailure = assertThrows(
+            LiteConfigException.class, () -> metadataOf(NormalizedDuplicateAllowedValuesConfig.class));
 
         assertEquals(ConfigError.INVALID_CONSTRAINT, typeFailure.error());
         assertEquals(ConfigError.INVALID_CONSTRAINT, emptyFailure.error());
         assertEquals(ConfigError.INVALID_CONSTRAINT, duplicateFailure.error());
+        assertEquals(ConfigError.INVALID_CONSTRAINT, trimmedDuplicateFailure.error());
+        assertEquals(ConfigError.INVALID_CONSTRAINT, normalizedDuplicateFailure.error());
+    }
+
+    @Test
+    void allowsWhitespaceDistinctChoicesWhenTrimmingIsDisabled() {
+        ConfigProperty property = propertyOf(WhitespaceDistinctConfig.class, "value");
+
+        assertEquals(List.of("value", " value "), property.constraints().allowedValues());
+        assertEquals(" value ", property.defaultValue());
+        assertFalse(property.constraints().trim());
     }
 
     @Test
@@ -336,10 +376,43 @@ class ConfigMetadataFactoryTest {
         String value;
     }
 
+    @Config(name = "trimmed-duplicate-allowed-values")
+    static class TrimmedDuplicateAllowedValuesConfig {
+        @AllowedValues({" mysql ", "MYSQL"})
+        String value;
+    }
+
+    @Config(name = "normalized-duplicate-allowed-values")
+    static class NormalizedDuplicateAllowedValuesConfig {
+        @AllowedValues(value = {"\u00df", "SS"}, normalize = EntryNormalization.UPPER_CASE)
+        String value;
+    }
+
+    @Config(name = "whitespace-distinct-allowed-values")
+    static class WhitespaceDistinctConfig {
+        @AllowedValues(value = {"value", " value "}, trim = false)
+        String value = " value ";
+    }
+
     @Config(name = "database")
     static class DatabaseConfig {
         @AllowedValues({"mysql", "sqlite"})
         String database = "sqlite";
+    }
+
+    @Config(name = "normalized-defaults")
+    static class NormalizedDefaults {
+        @AllowedValues({"MySQL", "SQLite"})
+        String database = "SQLite";
+        @AllowedValues(value = {"Fast", "Safe"}, normalize = EntryNormalization.UPPER_CASE)
+        String mode = "Safe";
+        @AllowedValues(value = "Custom", normalize = EntryNormalization.NONE)
+        String preserved = "CuStOm";
+    }
+
+    @Config(name = "primitive-array-default")
+    static class PrimitiveArrayDefault {
+        int[] values = {1, 2};
     }
 
     @Config(name = "nan-range")

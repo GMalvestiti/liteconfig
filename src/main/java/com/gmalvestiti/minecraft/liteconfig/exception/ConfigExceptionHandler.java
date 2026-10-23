@@ -88,7 +88,7 @@ public final class ConfigExceptionHandler {
      * @throws LiteConfigException when the read policy is {@code STRICT}, the failure is a defect,
      *     or a raw runtime failure is translated to {@code ConfigError.UNEXPECTED_FAILURE}
      */
-    public <V> ConfigOutcome<V> onRead(Class<V> configType, Supplier<V> read) {
+    public <V> ConfigOutcome<V> onRead(Class<?> configType, Supplier<V> read) {
         Objects.requireNonNull(configType, "configType");
         Objects.requireNonNull(read, "read");
 

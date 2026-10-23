@@ -1,8 +1,8 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
 import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
-import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 
 import java.util.Collection;
@@ -14,17 +14,8 @@ import java.lang.ref.WeakReference;
 public final class ConfigSyncRegistry {
 
     private static final Map<String, SyncedConfig<?>> SYNCED = new ConcurrentHashMap<>();
-    private static boolean INITIALIZED;
 
     private ConfigSyncRegistry() {}
-
-    public static synchronized void initialize() {
-        if (INITIALIZED) {
-            return;
-        }
-        ConfigRegistry.setLifecycleCallbacks(ConfigSyncRegistry::register, ConfigSyncRegistry::unregister);
-        INITIALIZED = true;
-    }
 
     static SyncedConfig<?> get(String id) {
         return SYNCED.get(id);
@@ -34,24 +25,31 @@ public final class ConfigSyncRegistry {
         return SYNCED.values();
     }
 
-    private static void register(RegisteredConfig<?> config) {
-        if (config.model().metadata().synced().isEmpty()) {
+    public static void register(RegisteredConfig<?> config) {
+        if (config.pathResolver().type() == ConfigType.CLIENT
+            || config.model().metadata().synced().isEmpty()) {
             return;
         }
 
-        SyncedConfig<?> synced = SyncedConfig.of(config);
-        SyncedConfig<?> existing = SYNCED.putIfAbsent(synced.id(), synced);
-
-        if (existing != null) {
-            if (!existing.wraps(config)) {
-                throw config.model().scope().exception(ConfigError.CONFLICTING_SYNC_ROOT, synced.id());
+        SyncedConfig<?> synced = config.writing(() -> {
+            SyncedConfig<?> candidate = SyncedConfig.of(config);
+            SyncedConfig<?> existing = SYNCED.putIfAbsent(candidate.id(), candidate);
+            if (existing != null) {
+                if (!existing.wraps(config)) {
+                    throw config.model().scope().exception(ConfigError.CONFLICTING_SYNC_ROOT, candidate.id());
+                }
+                return existing;
             }
-            return;
-        }
+            try {
+                candidate.registerLocalChangeBroadcast();
+            } catch (RuntimeException | Error failure) {
+                SYNCED.remove(candidate.id(), candidate);
+                throw failure;
+            }
+            return candidate;
+        });
 
         try {
-            synced.addBroadcastListener(() -> ServerConfigSync.broadcast(synced));
-
             WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
             runOnMainThread(() -> {
                 SyncedConfig<?> current = reference.get();
@@ -68,7 +66,7 @@ public final class ConfigSyncRegistry {
         }
     }
 
-    private static void unregister(RegisteredConfig<?> config) {
+    public static void unregister(RegisteredConfig<?> config) {
         SyncedConfig<?> synced = SYNCED.get(config.model().syncId());
 
         if (synced == null || !synced.wraps(config) || !SYNCED.remove(synced.id(), synced)) {
@@ -79,7 +77,7 @@ public final class ConfigSyncRegistry {
         ServerConfigSync.refreshManifest();
     }
 
-    static void activate() {
+    public static void activate() {
         if (SYNCED.isEmpty()) {
             return;
         }
@@ -97,7 +95,7 @@ public final class ConfigSyncRegistry {
 
         try {
             synced.cachedSnapshot();
-            ClientConfigSync.requestIfChanged(synced);
+            ClientConfigSync.requestIfAdvertised(synced);
         } catch (RuntimeException | Error failure) {
             if (SYNCED.remove(synced.id(), synced)) {
                 synced.close();

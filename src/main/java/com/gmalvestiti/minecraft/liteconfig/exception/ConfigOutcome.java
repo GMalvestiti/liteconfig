@@ -75,6 +75,14 @@ public record ConfigOutcome<V>(V produced, LiteConfigException cause) {
         return Optional.ofNullable(cause);
     }
 
+    /**
+     * {@code true} when the read failed on I/O, so the on-disk file may still hold valid data
+     * and must not be overwritten with defaults.
+     */
+    public boolean ioLoadFailed() {
+        return cause != null && cause.error() == ConfigError.IO_LOAD_FAILURE;
+    }
+
     /** Produced value, or {@code fallback.get()} when absent. */
     public V valueOr(Supplier<V> fallback) {
         return produced != null ? produced : Objects.requireNonNull(fallback, "fallback").get();

@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.EntryNormalization;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
@@ -45,7 +46,9 @@ final class DeclaredConstraints {
             pattern != null,
             length != null,
             notNull != null,
-            notBlank != null
+            notBlank != null,
+            allowedValues == null ? EntryNormalization.NONE : allowedValues.normalize(),
+            allowedValues != null && allowedValues.trim()
         );
     }
 
@@ -105,8 +108,9 @@ final class DeclaredConstraints {
 
             Set<String> unique = new HashSet<>();
             for (String value : allowedValues.value()) {
-                if (!unique.add(value.toLowerCase(Locale.ROOT))) {
-                    problems.add("@AllowedValues values must be distinct ignoring case");
+                String normalized = allowedValues.normalize().apply(value, allowedValues.trim());
+                if (!unique.add(normalized.toLowerCase(Locale.ROOT))) {
+                    problems.add("@AllowedValues values must be distinct ignoring case after normalization");
                     break;
                 }
             }

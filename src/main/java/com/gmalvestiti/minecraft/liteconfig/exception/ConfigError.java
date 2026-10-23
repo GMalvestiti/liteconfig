@@ -28,6 +28,8 @@ package com.gmalvestiti.minecraft.liteconfig.exception;
 public enum ConfigError {
     /** Signals that a root class is not annotated with {@code @Config}. */
     MISSING_CONFIG_MARKER("Class %s must be annotated with @Config"),
+    /** Signals that a root uses the field-only inherited synchronization mode. */
+    INVALID_CONFIG_SYNC("Config %s declares sync = INHERIT: @Config.sync must be ENABLED or DISABLED because a root has no parent", true),
     /** Signals that a {@code @Config} class directly references another {@code @Config} type. */
     CONFIG_REFERENCE_FORBIDDEN("Field %s in %s cannot reference another @Config type"),
     /** Signals that a config class cannot provide defaults through a no-arg constructor. */
@@ -44,8 +46,8 @@ public enum ConfigError {
     CONFLICTING_CONFIG_PATH("Config %s resolves to %s, which is already owned by %s"),
     /** Signals that one config registration is requested by more than one mod scope. */
     CONFLICTING_CONFIG_SCOPE("Config %s in %s is already registered for mod '%s', not '%s'", true),
-    /** Signals that registration hooks recursively request the registration being created. */
-    REENTRANT_CONFIG_REGISTRATION("Config %s was registered recursively while its registration hook was still running", true),
+    /** Signals nested creation that would wait for unfinished config initialization. */
+    REENTRANT_CONFIG_REGISTRATION("Cannot wait for config %s to finish initialization while creating a config", true),
     /** Signals that reflection cannot read or write a config field. */
     REFLECTION_ACCESS("Unable to access field %s in class %s"),
     /** Signals that an immutable field cannot be populated from persisted data. */
@@ -68,10 +70,10 @@ public enum ConfigError {
     VALIDATOR_FAILED("Validation for %s threw an exception: %s", true),
     /** Signals that a {@code ConfigExtension} hook throws. */
     EXTENSION_HOOK_FAILED("Config extension hook '%s' threw an exception: %s", true),
-    /** Signals that a config lifecycle listener throws after an event is dispatched. */
+    /** Signals that an entry listener throws after a state transition is published. */
     CHANGE_LISTENER_FAILED("Config change listener threw an exception: %s"),
-    /** Signals that an {@code @Entry(callback = ...)} method has an invalid declaration. */
-    INVALID_ENTRY_ON_SET_CALLBACK("Field %s in %s declares an invalid callback: %s", true),
+    /** Signals that an {@code @Entry(listener = ...)} method has an invalid declaration. */
+    INVALID_ENTRY_LISTENER("Field %s in %s declares an invalid listener: %s", true),
     /** Signals that a field declares a constraint that no value could satisfy. */
     INVALID_CONSTRAINT("Field %s in %s declares an invalid constraint: %s", true),
     /** Signals that a config file was written by a newer version of the mod. */
@@ -92,7 +94,7 @@ public enum ConfigError {
     HOLDER_OPERATION_UNSUPPORTED("The %s config holder does not support '%s'"),
     /** Signals that an operation was attempted through a released holder handle. */
     HOLDER_CLOSED("Config holder for %s is closed"),
-    /** Signals that a callback tries to mutate the registration whose operation is still running. */
+    /** Signals that a notification tries to mutate the registration whose operation is still running. */
     NESTED_CONFIG_OPERATION("Config operation started while another operation on the same registration is in progress", true),
     /** Signals that a custom state cloner violates the isolation contract. */
     INVALID_STATE_COPY("State cloner for %s %s", true),

@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.api.annotations;
 
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigHolder;
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.UpdateResult;
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -123,9 +124,12 @@ public @interface Entry {
     String translationKey() default "";
 
     /**
-     * Refuses runtime changes to a field that only takes effect while the game is starting.
+     * Defers changes to a field until its ownership scope restarts.
      *
-     * <p>Some settings are read once at startup. Writing them at runtime leaves the file disagreeing with the running game, so the attempt fails immediately instead:
+     * <p>CLIENT and SERVER edits are accepted as pending until game startup. WORLD edits wait
+     * until the world is loaded again; initial remote sync applies that world's settings on
+     * joining. Other fields can change immediately. Save local selections to retain them across
+     * loads:
      *
      * <pre>{@code
      * UpdateResult result = holder.updateAndSave(config -> config.useNativeRenderer = true);
@@ -134,49 +138,58 @@ public @interface Entry {
      * }
      * }</pre>
      *
-     * <p>The whole update is rejected, not just the field, so a mutator that touches several
-     * fields never applies half of them. Rejection follows the update failure policy: it throws
-     * under {@code STRICT} and returns a rejected {@link UpdateResult}
-     * under {@code FALLBACK}.
+     * <p>Synced SERVER changes are persisted for the client's next game startup and exposed
+     * through {@link ConfigHolder#pending()} without changing active values.
      *
-     * <p>Loading is not an update: {@link ConfigHolder#load()} replaces the state wholesale, so
-     * a player who edits the file and restarts still gets the new value.
+     * <p>Explicit CLIENT/WORLD {@link ConfigHolder#load()} does not activate restart-only changes
+     * within the current scope. SERVER local loading retains its existing behavior.
      *
-     * @return {@code true} to reject every update that changes this field
+     * @return whether changes require a game restart or world reload according to ownership
      */
     boolean restart() default false;
 
     /**
-     * Sends this field from the server to connected clients.
+     * Chooses whether this field is sent from the server to connected clients.
      *
-     * <p>Off by default. A whole config travels when {@link Config#sync()} says so; this sends a
-     * single field out of a config that otherwise keeps to itself:
+     * <p>Defaults to {@link SyncMode#INHERIT}: follow the parent section or {@link Config#sync()}.
+     * Adding an entry annotation only for a comment or listener leaves that choice unchanged.
+     * Use {@link SyncMode#ENABLED} to send a field from a config that otherwise stays local:
      *
      * <pre>{@code
      * @Config(name = "rules")
      * public final class RulesConfig {
      *
-     *     @Entry(sync = true)
+     *     @Entry(sync = SyncMode.ENABLED)
      *     public int maxTeamSize = 4;                 // clients need this
      *
      *     public String auditLogPath = "logs/audit";  // clients never see it
      * }
      * }</pre>
      *
-     * <p>Sending covers everything below the field, so marking a nested object sends every value
-     * it holds. A field of a config that already syncs is sent either way — this adds fields, it
-     * never takes them back out.
+     * <p>Use {@link SyncMode#DISABLED} to keep a field local under config-wide sync:
      *
-     * <p>A field that is not sent has no value on a connected client at all: reading it there
-     * yields the declared default, never the server's value. That is the point — it is how a
-     * server keeps something to itself.
+     * <pre>{@code
+     * @Config(name = "rules", sync = SyncMode.ENABLED)
+     * public final class Rules {
+     *     public int maxTeamSize = 4;
      *
-     * <p>Values travel one way, from the server to its clients. A client's own config never
-     * reaches a server.
+     *     @Entry(sync = SyncMode.DISABLED)
+     *     public String auditLogPath = "logs/audit";
+     * }
+     * }</pre>
      *
-     * @return {@code true} to send this field to connected clients
+     * <p>Enabling a nested section includes its persisted leaves, except disabled descendants.
+     * Disabling a section excludes its entire subtree, even descendants marked
+     * {@code SyncMode.ENABLED}. Excluded values never enter the network schema or payload;
+     * clients retain their local values or defaults. Persistence, copying, and validation
+     * remain unchanged.
+     *
+     * <p>Values travel only from server to client. CLIENT-owned configs never synchronize,
+     * regardless of this mode.
+     *
+     * @return the sync selection mode, {@link SyncMode#INHERIT} by default
      */
-    boolean sync() default false;
+    SyncMode sync() default SyncMode.INHERIT;
 
     /**
      * Names the instance method called after this field changes in an accepted state transition.
@@ -188,7 +201,7 @@ public @interface Entry {
      * declaration while the holder is built:
      *
      * <pre>{@code
-     * @Entry(callback = "applyHudScale")
+     * @Entry(listener = "applyHudScale")
      * public int hudScale = 2;
      *
      * private void applyHudScale(Integer oldValue, Integer newValue, boolean fromSync) {
@@ -196,19 +209,19 @@ public @interface Entry {
      * }
      * }</pre>
      *
-     * <p>The callback runs only after a changed value has been validated and published. It runs for
+     * <p>The listener runs only after a changed value has been validated and published. It runs for
      * successful explicit loads, updates, and server sync transitions, but not for the build-time
      * load; {@code fromSync} is {@code true} only for server-supplied values.
      *
-     * <p>Callbacks run inline as part of the transition. Rejected updates and structurally unchanged
-     * values run nothing.
-     * A callback must not mutate the config object. Failures are logged like lifecycle listener
-     * failures and do not undo the state transition or prevent later callbacks.
+     * <p>Listeners run synchronously on the initiating caller after the state is published.
+     * Rejected updates and structurally unchanged values run nothing.
      *
-     * <p>Starting another mutation on the same registration, including through a different holder,
-     * is rejected while the transition's callbacks are running.
+     * A listener must not mutate the config object. Failures are logged like lifecycle event
+     * failures and do not undo the state transition or prevent later listeners.
      *
-     * @return the callback method name, or {@code ""} to disable the callback
+     * <p>A listener may start another holder operation, including through a different holder.
+     *
+     * @return the listener method name, or {@code ""} to disable the listener
      */
-    String callback() default "";
+    String listener() default "";
 }

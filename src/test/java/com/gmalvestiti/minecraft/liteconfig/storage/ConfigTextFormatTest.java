@@ -24,7 +24,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.EntryConfig.class);
 
         storage.write(new TestFixtures.EntryConfig());
-        String written = Files.readString(tempDir.resolve("entries.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("entries.json5"));
         assertTrue(written.contains("hud_scale"), "@Entry(name) renames the property on disk");
         assertTrue(written.contains("Scale of the HUD overlay."));
         assertTrue(written.contains("Settings for the entry fixture."));
@@ -52,7 +52,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.TomlConfig.class);
 
         storage.write(new TestFixtures.TomlConfig());
-        String written = Files.readString(tempDir.resolve("toml-fixture.toml"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("toml-fixture.toml"));
         assertTrue(written.contains("#A TOML-backed fixture."), "the class comment heads the file");
         assertTrue(written.contains("How loud, from 0 to 10."));
         assertTrue(written.contains("volume = 5"), "an integer field must not be written as a float");
@@ -86,7 +86,8 @@ class ConfigTextFormatTest {
     void testReportsMalformedTomlLikeAnyOtherUnreadableFile(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.TomlConfig> storage =
             TestFixtures.storage(tempDir, TestFixtures.TomlConfig.class);
-        Files.writeString(tempDir.resolve("toml-fixture.toml"), "volume = = 3");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("toml-fixture.toml"), "volume = = 3");
 
         LiteConfigException failure = assertThrows(
             LiteConfigException.class,
@@ -101,7 +102,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.AwkwardCommentConfig.class);
 
         storage.write(new TestFixtures.AwkwardCommentConfig());
-        String written = Files.readString(tempDir.resolve("awkward-comments.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("awkward-comments.json5"));
 
         assertTrue(written.contains("/*"), "several lines share one block comment");
         assertTrue(written.contains(" * Two lines,"));
@@ -131,7 +132,7 @@ class ConfigTextFormatTest {
         written.value = 42;
 
         storage.write(written);
-        String text = Files.readString(tempDir.resolve("awkward-comments-toml.toml"));
+        String text = Files.readString(tempDir.resolve("mod").resolve("awkward-comments-toml.toml"));
 
         assertTrue(text.contains("#Two lines,"));
         assertTrue(text.contains("#so this renders as a block."));
@@ -145,7 +146,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.IgnoredFieldConfig.class);
 
         storage.write(new TestFixtures.IgnoredFieldConfig());
-        String written = Files.readString(tempDir.resolve("ignored-field.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("ignored-field.json5"));
 
         assertTrue(written.contains("persisted"), "non-ignored fields must be written");
         assertFalse(written.contains("ignored"), "@Ignore fields must not appear in the file");
@@ -156,7 +157,8 @@ class ConfigTextFormatTest {
         ConfigStorage<TestFixtures.IgnoredFieldConfig> storage =
             TestFixtures.storage(tempDir, TestFixtures.IgnoredFieldConfig.class);
 
-        Files.writeString(tempDir.resolve("ignored-field.json5"), "{\"persisted\":7,\"ignored\":42}");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("ignored-field.json5"), "{\"persisted\":7,\"ignored\":42}");
 
         TestFixtures.IgnoredFieldConfig loaded = storage.read();
 
@@ -170,7 +172,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.IgnoredWithEntryConfig.class);
 
         storage.write(new TestFixtures.IgnoredWithEntryConfig());
-        String written = Files.readString(tempDir.resolve("ignored-with-entry.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("ignored-with-entry.json5"));
 
         assertFalse(written.contains("ignored"), "@Ignore must exclude the field even when @Entry is also present");
         assertFalse(written.contains("This comment must never reach the file."), "@Entry comment must not be written for an ignored field");
@@ -182,7 +184,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.ConstrainedConfig.class);
 
         storage.write(new TestFixtures.ConstrainedConfig());
-        String written = Files.readString(tempDir.resolve("constrained.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("constrained.json5"));
 
         assertTrue(written.contains("Scale of the HUD."));
         assertFalse(written.contains("Default:"));
@@ -200,7 +202,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.EntryConfig.class);
 
         storage.write(new TestFixtures.EntryConfig());
-        String written = Files.readString(tempDir.resolve("entries.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("entries.json5"));
 
         assertFalse(written.contains("Takes effect after a restart."));
     }
@@ -211,7 +213,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.VersionedTomlConfig.class);
 
         storage.write(new TestFixtures.VersionedTomlConfig());
-        String written = Files.readString(tempDir.resolve("versioned-toml.toml"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("versioned-toml.toml"));
 
         assertFalse(written.contains("#Revision of this file."));
     }
@@ -222,7 +224,7 @@ class ConfigTextFormatTest {
             TestFixtures.storage(tempDir, TestFixtures.SimpleConfig.class);
 
         storage.write(new TestFixtures.SimpleConfig());
-        String written = Files.readString(tempDir.resolve("simple.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("simple.json5"));
 
         assertFalse(written.contains("Default:"));
         assertFalse(written.contains("configVersion"));

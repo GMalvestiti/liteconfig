@@ -11,14 +11,14 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
  * between them is a one-word change on {@link Config#format()}:
  *
  * <pre>{@code
- * @Config(name = "mymod")                                // config/mymod.json5
+ * @Config(name = "mymod")                                // config/mymod/mymod.json5
  * public final class MyModConfig {
  *
  *     @Entry(comment = "Scale of the on-screen HUD.")
  *     public int hudScale = 2;
  * }
  *
- * @Config(name = "mymod", format = ConfigFormat.TOML)    // config/mymod.toml
+ * @Config(name = "mymod", format = ConfigFormat.TOML)    // config/mymod/mymod.toml
  * public final class MyModConfig { }
  * }</pre>
  *

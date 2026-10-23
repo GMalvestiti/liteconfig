@@ -70,7 +70,7 @@ class ConfigMigrationsTest {
             TestFixtures.storage(tempDir, TestFixtures.VersionedConfig.class);
 
         storage.write(new TestFixtures.VersionedConfig());
-        String written = Files.readString(tempDir.resolve("versioned.json5"));
+        String written = Files.readString(tempDir.resolve("mod").resolve("versioned.json5"));
 
         assertTrue(written.contains("configVersion"));
         assertTrue(
@@ -85,7 +85,7 @@ class ConfigMigrationsTest {
 
         storage.write(new TestFixtures.VersionedTomlConfig());
 
-        assertTrue(Files.readString(tempDir.resolve("versioned-toml.toml")).contains("configVersion = 2"));
+        assertTrue(Files.readString(tempDir.resolve("mod").resolve("versioned-toml.toml")).contains("configVersion = 2"));
     }
 
     @Test
@@ -95,7 +95,7 @@ class ConfigMigrationsTest {
 
         storage.write(new TestFixtures.SimpleConfig());
 
-        assertFalse(Files.readString(tempDir.resolve("simple.json5")).contains("configVersion"));
+        assertFalse(Files.readString(tempDir.resolve("mod").resolve("simple.json5")).contains("configVersion"));
     }
 
     @Test
@@ -199,6 +199,8 @@ class ConfigMigrationsTest {
     }
 
     private static void write(Path tempDir, String fileName, String text) throws IOException {
-        Files.writeString(tempDir.resolve(fileName), text);
+        Path directory = tempDir.resolve("mod");
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve(fileName), text);
     }
 }

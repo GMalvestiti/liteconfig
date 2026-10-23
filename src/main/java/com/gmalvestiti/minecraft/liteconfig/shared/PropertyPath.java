@@ -46,19 +46,4 @@ public final class PropertyPath {
 
         return parent + SEPARATOR + key;
     }
-
-    public static String last(String[] steps) {
-        Objects.requireNonNull(steps, "steps");
-
-        if (steps.length == 0) {
-            throw new IllegalArgumentException("config path must contain at least one step");
-        }
-
-        String last = Objects.requireNonNull(steps[steps.length - 1], "last step");
-        if (last.isBlank()) {
-            throw new IllegalArgumentException("last step must not be blank");
-        }
-
-        return last;
-    }
 }

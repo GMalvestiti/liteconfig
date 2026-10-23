@@ -93,6 +93,16 @@ class JsonConfigDataTest {
     }
 
     @Test
+    void testRejectsUnsupportedValuesBeforeCreatingOrReplacingParents() {
+        JsonObject before = tree.deepCopy();
+
+        assertThrows(IllegalArgumentException.class, () -> data.set("missing.nested", new Object()));
+        assertThrows(IllegalArgumentException.class, () -> data.set("name.nested", new Object()));
+
+        assertEquals(before, tree);
+    }
+
+    @Test
     void testRejectsABlankPath() {
         assertThrows(IllegalArgumentException.class, () -> data.set("", 1));
         assertThrows(IllegalArgumentException.class, () -> data.rename("name", " "));

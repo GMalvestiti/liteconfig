@@ -1,4 +1,4 @@
-package com.gmalvestiti.minecraft.liteconfig.reflection.callback;
+package com.gmalvestiti.minecraft.liteconfig.reflection.listener;
 
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import java.lang.reflect.Field;
@@ -6,7 +6,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Objects;
 
-record ConfigFieldCallback(Field[] chain, Method method) {
+record ConfigFieldListener(Field[] chain, Method method) {
 
     void invokeIfChanged(
         ConfigFieldAccess fieldAccess,

@@ -83,14 +83,14 @@ class SimpleConfigHolderTest {
     @Test
     void testFallsBackAndBacksUpMalformedDataOnLoad(@TempDir Path tempDir) throws Exception {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
-        Path file = tempDir.resolve("with-extension.json5");
+        Path file = tempDir.resolve("mod").resolve("with-extension.json5");
         Files.writeString(file, "{");
 
         holder.load();
 
         assertEquals(1, holder.data().value);
         assertFalse(Files.exists(file), "a degraded load moves the file aside and keeps defaults in memory");
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(file.getParent())) {
             assertEquals(1, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }
@@ -98,7 +98,8 @@ class SimpleConfigHolderTest {
     @Test
     void testPreservesNewerVersionBeforeSavingDefaults(@TempDir Path tempDir) throws Exception {
         String original = "{\"configVersion\":9,\"hud\":{\"scale\":7},\"profile\":\"future\"}";
-        Path file = tempDir.resolve("versioned.json5");
+        Path file = tempDir.resolve("mod").resolve("versioned.json5");
+        Files.createDirectories(file.getParent());
         Files.writeString(file, original);
 
         ConfigHolder<TestFixtures.VersionedConfig> holder =
@@ -109,7 +110,7 @@ class SimpleConfigHolderTest {
 
         assertEquals(2, holder.data().hud.scale);
         assertTrue(Files.readString(file).contains("configVersion"));
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(file.getParent())) {
             Path backup = entries
                 .filter(path -> path.getFileName().toString().contains(".corrupt-"))
                 .findFirst()
@@ -121,14 +122,14 @@ class SimpleConfigHolderTest {
     @Test
     void testThrowsOnMalformedDataUnderStrictReadPolicy(@TempDir Path tempDir) throws Exception {
         ConfigHolder<TestFixtures.StrictReadConfigWithExtension> holder = strictReadHolder(tempDir);
-        Path file = tempDir.resolve("strict-read-with-extension.json5");
+        Path file = tempDir.resolve("mod").resolve("strict-read-with-extension.json5");
         Files.writeString(file, "{");
 
         LiteConfigException failure = assertThrows(LiteConfigException.class, holder::load);
 
         assertEquals(ConfigError.MALFORMED_CONFIG_DATA, failure.error());
         assertTrue(Files.exists(file));
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(file.getParent())) {
             assertEquals(0, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }

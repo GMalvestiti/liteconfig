@@ -1,7 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.engine.state;
 
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
-import com.gmalvestiti.minecraft.liteconfig.storage.ConfigBinder;
+import com.gmalvestiti.minecraft.liteconfig.storage.ConfigSerialization;
 
 public final class StateClonerImplementation implements StateCloner<Object> {
 
@@ -12,6 +12,6 @@ public final class StateClonerImplementation implements StateCloner<Object> {
 
     @SuppressWarnings("unchecked")
     private static <T> T copyValue(T source) {
-        return ConfigBinder.copy(source, (Class<T>) source.getClass());
+        return ConfigSerialization.copy(source, (Class<T>) source.getClass());
     }
 }

@@ -63,8 +63,13 @@ public interface ConfigExtension {
     /**
      * Checks the values on {@code this} and reports every rule that fails.
      *
-     * <p>Called on every candidate — after load, after each update, and at construction. All
-     * violations collected under the root are joined into one
+     * <p>Called after load, after each update, and at construction, only when all declared
+     * constraints on the candidate have passed. For example, a field annotated with
+     * {@code @NotNull} is non-null here, and a {@code @Range} field is within its declared bounds.
+     * Unannotated fields have no such guarantees.
+     *
+     * <p>If a declared constraint fails, this method is skipped and the declared violations are
+     * reported instead. Otherwise, all violations reported by this method are joined into one
      * {@code ConfigError.VALIDATION_FAILED} failure; the read or update policy then decides
      * whether it throws or degrades. A strict policy puts them on
      * {@code LiteConfigException.violations()}, a fallback update policy returns them in

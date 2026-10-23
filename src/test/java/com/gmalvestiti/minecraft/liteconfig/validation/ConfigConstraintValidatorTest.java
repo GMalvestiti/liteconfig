@@ -6,6 +6,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
+import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConfigConstraintValidatorTest {
 
     private final ConfigConstraintValidator validator =
-        new ConfigConstraintValidator(TestFixtures.fieldAccess());
+        validatorFor(TestFixtures.ConstrainedConfig.class);
 
     @Test
     void testAcceptsTheDeclaredDefaults() {
@@ -83,15 +84,28 @@ class ConfigConstraintValidatorTest {
 
     @Test
     void testAcceptsAllowedStringValuesWithoutCase() {
-        assertEquals(List.of(), validator.run(new DatabaseConfig("MySQL")));
+        assertEquals(List.of(), validatorFor(DatabaseConfig.class).run(new DatabaseConfig("MySQL")));
     }
 
     @Test
     void testReportsAStringOutsideTheAllowedValues() {
         assertEquals(
             List.of("value.database"),
-            validator.run(new DatabaseConfig("postgres")).stream().map(Violation::id).toList()
+            validatorFor(DatabaseConfig.class).run(new DatabaseConfig("postgres")).stream().map(Violation::id).toList()
         );
+    }
+
+    @Test
+    void testRejectsAMissingAllowedStringWithANonNullDefault() {
+        assertEquals(
+            List.of("value.database"),
+            validatorFor(DatabaseConfig.class).run(new DatabaseConfig(null))
+                .stream().map(Violation::id).toList());
+    }
+
+    @Test
+    void testAllowsAnAllowedStringThatDeliberatelyDefaultsToNull() {
+        assertEquals(List.of(), validatorFor(NullableDatabaseConfig.class).run(new NullableDatabaseConfig()));
     }
 
     @Test
@@ -148,12 +162,12 @@ class ConfigConstraintValidatorTest {
 
     @Test
     void testIgnoresConfigsThatDeclareNoConstraints() {
-        assertEquals(List.of(), validator.run(new TestFixtures.SimpleConfig()));
+        assertEquals(List.of(), validatorFor(TestFixtures.SimpleConfig.class).run(new TestFixtures.SimpleConfig()));
     }
 
     @Test
     void testRejectsNaNWhenARangeIsDeclared() {
-        assertEquals(List.of("range.value"), validator.run(new NaNValueConfig()).stream().map(Violation::id).toList());
+        assertEquals(List.of("range.value"), validatorFor(NaNValueConfig.class).run(new NaNValueConfig()).stream().map(Violation::id).toList());
     }
 
     @Test
@@ -168,7 +182,7 @@ class ConfigConstraintValidatorTest {
     void testReportsANullRequiredValue() {
         assertEquals(
             List.of("notnull.value"),
-            validator.run(new NotNullConfig()).stream().map(Violation::id).toList()
+            validatorFor(NotNullConfig.class).run(new NotNullConfig()).stream().map(Violation::id).toList()
         );
     }
 
@@ -188,6 +202,11 @@ class ConfigConstraintValidatorTest {
         return validator.run(candidate).stream().map(Violation::id).toList();
     }
 
+    private static ConfigConstraintValidator validatorFor(Class<?> type) {
+        ConfigModel<?> model = TestFixtures.model(type);
+        return new ConfigConstraintValidator(model.fieldAccess(), model.fields(), model.metadata());
+    }
+
     static class NaNValueConfig {
         @Range
         double value = Double.NaN;
@@ -202,9 +221,18 @@ class ConfigConstraintValidatorTest {
         @AllowedValues({"mysql", "sqlite"})
         String database;
 
+        DatabaseConfig() {
+            this("sqlite");
+        }
+
         DatabaseConfig(String database) {
             this.database = database;
         }
+    }
+
+    static class NullableDatabaseConfig {
+        @AllowedValues({"mysql", "sqlite"})
+        String database;
     }
 
     static class NotNullConfig {
@@ -216,12 +244,16 @@ class ConfigConstraintValidatorTest {
         @NotBlank
         String value;
 
+        NotBlankConfig() {
+            this("profile");
+        }
+
         NotBlankConfig(String value) {
             this.value = value;
         }
     }
 
     private List<String> blankViolationIds(String value) {
-        return validator.run(new NotBlankConfig(value)).stream().map(Violation::id).toList();
+        return validatorFor(NotBlankConfig.class).run(new NotBlankConfig(value)).stream().map(Violation::id).toList();
     }
 }

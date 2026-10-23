@@ -1,11 +1,13 @@
 package com.gmalvestiti.minecraft.liteconfig.registry;
 
 import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigFileOwnership;
+import com.gmalvestiti.minecraft.liteconfig.platform.Platform;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
 import com.gmalvestiti.minecraft.liteconfig.support.RegisteredConfigs;
@@ -14,12 +16,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 @ExtendWith(ConfigRegistryIsolation.class)
 class RegisteredConfigTest {
@@ -34,6 +38,23 @@ class RegisteredConfigTest {
         public int value = 1;
     }
 
+    @Config(name = "client", type = ConfigType.CLIENT)
+    static class ClientConfig {
+        public int value = 7;
+    }
+
+    @Test
+    void testClientOwnershipUsesPhysicalEnvironmentWithoutGameInstances(@TempDir Path tempDir) {
+        Path installation = tempDir.resolve("installation");
+        RegisteredConfig<ClientConfig> registration = create(settings(ClientConfig.class, installation));
+        assertEquals(7, registration.state().published().value);
+        assertEquals(Platform.isClient(), registration.isActive());
+        assertEquals(Platform.isClient(), registration.isLocallyWritable());
+        if (!Platform.isClient()) {
+            assertFalse(Files.exists(installation));
+        }
+    }
+
     @Test
     void testWiresEveryCollaborator(@TempDir Path tempDir) {
         RegisteredConfig<TestFixtures.ConfigWithExtension> registration = create(
@@ -43,9 +64,12 @@ class RegisteredConfigTest {
         assertEquals("mod", registration.model().scope().modId());
         assertNotNull(registration.engine());
         assertNotNull(registration.guard());
-        assertNotNull(registration.notifier());
+        assertNotNull(registration.holderEvents());
         assertNotNull(registration.exceptionHandler());
         assertNotNull(registration.state().published());
+        assertEquals(ConfigType.SERVER, registration.pathResolver().type());
+        assertEquals(tempDir.toAbsolutePath().normalize(), registration.pathResolver().baseDirectory());
+        assertTrue(registration.pathResolver().activePath().isPresent());
     }
 
     @Test

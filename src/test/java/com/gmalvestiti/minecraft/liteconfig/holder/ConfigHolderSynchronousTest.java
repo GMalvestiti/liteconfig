@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConfigHolderSynchronousTest {
 
     @Test
-    void testCloningValidationHooksAndFieldCallbacksStayOnTheCallingGameThread(@TempDir Path tempDir) {
+    void testCloningValidationHooksAndFieldListenersStayOnTheCallingGameThread(@TempDir Path tempDir) {
         ThreadBoundConfig.gameThread = Thread.currentThread();
         ThreadBoundConfig.events.clear();
         try (ConfigHolder<ThreadBoundConfig> holder =
@@ -58,7 +58,7 @@ class ConfigHolderSynchronousTest {
             assertTrue(ThreadBoundConfig.events.indexOf("validate")
                 < ThreadBoundConfig.events.indexOf("before-save"));
             assertTrue(ThreadBoundConfig.events.indexOf("before-save")
-                < ThreadBoundConfig.events.indexOf("callback"));
+                < ThreadBoundConfig.events.indexOf("listener"));
             ThreadBoundConfig.events.clear();
 
             holder.load();
@@ -83,7 +83,7 @@ class ConfigHolderSynchronousTest {
             config.value = 7;
         }).accepted());
         assertEquals(7, holder.data().value);
-        assertTrue(Files.readString(tempDir.resolve("with-extension.json5")).contains("\"value\": 7"));
+        assertTrue(Files.readString(tempDir.resolve("mod").resolve("with-extension.json5")).contains("\"value\": 7"));
 
         holder.update(config -> {
             assertSame(gameThread, Thread.currentThread());
@@ -94,13 +94,14 @@ class ConfigHolderSynchronousTest {
         assertEquals(7, holder.data().value);
         holder.update(config -> config.value = 9);
         holder.save();
-        assertTrue(Files.readString(tempDir.resolve("with-extension.json5")).contains("\"value\": 9"));
+        assertTrue(Files.readString(tempDir.resolve("mod").resolve("with-extension.json5")).contains("\"value\": 9"));
     }
 
     @Test
-    void testRejectsNestedOperationsFromHooksAndFieldCallbacks(@TempDir Path tempDir) {
+    void testHooksRejectNestedOperations(@TempDir Path tempDir) {
         ThreadBoundConfig.gameThread = Thread.currentThread();
         ThreadBoundConfig.events.clear();
+        ThreadBoundConfig.listenerOperation = null;
         AtomicInteger rejected = new AtomicInteger();
         try (ConfigHolder<ThreadBoundConfig> holder =
             LiteConfig.holder(ThreadBoundConfig.class).modId("mod").baseDir(tempDir).create()) {
@@ -111,13 +112,40 @@ class ConfigHolderSynchronousTest {
             };
 
             assertTrue(holder.update(config -> config.value = 2).accepted());
-            assertEquals(1, rejected.get(), "field callbacks must reject nested config operations");
+            assertEquals(0, rejected.get(), "field listeners do not attempt nested operations here");
             holder.save();
-            assertEquals(2, rejected.get(), "beforeSave must reject nested config operations");
+            assertEquals(1, rejected.get(), "beforeSave must reject nested config operations");
             holder.load();
-            assertEquals(3, rejected.get(), "afterLoad must reject nested config operations");
+            assertEquals(2, rejected.get(), "afterLoad must reject nested config operations");
         } finally {
             ThreadBoundConfig.nestedOperation = null;
+            ThreadBoundConfig.listenerOperation = null;
+            ThreadBoundConfig.gameThread = null;
+            ThreadBoundConfig.events.clear();
+        }
+    }
+
+    @Test
+    void testFieldListenersCanStartNestedOperationsAfterPublication(@TempDir Path tempDir) {
+        ThreadBoundConfig.gameThread = Thread.currentThread();
+        ThreadBoundConfig.events.clear();
+        AtomicInteger listenerOperations = new AtomicInteger();
+        try (ConfigHolder<ThreadBoundConfig> holder =
+            LiteConfig.holder(ThreadBoundConfig.class).modId("mod").baseDir(tempDir).create()) {
+            ThreadBoundConfig.nestedOperation = null;
+            ThreadBoundConfig.listenerOperation = () -> {
+                if (listenerOperations.getAndIncrement() == 0) {
+                    assertTrue(holder.update(config -> config.value = 3).accepted());
+                }
+            };
+
+            assertTrue(holder.update(config -> config.value = 2).accepted());
+
+            assertEquals(2, listenerOperations.get());
+            assertEquals(3, holder.data().value);
+        } finally {
+            ThreadBoundConfig.nestedOperation = null;
+            ThreadBoundConfig.listenerOperation = null;
             ThreadBoundConfig.gameThread = null;
             ThreadBoundConfig.events.clear();
         }
@@ -177,14 +205,15 @@ class ConfigHolderSynchronousTest {
 
             if (saving) {
                 holder.save();
-                assertTrue(Files.readString(tempDir.resolve("thread-bound.json5"))
+                assertTrue(Files.readString(tempDir.resolve("mod").resolve("thread-bound.json5"))
                     .contains("\"value\": 7"));
             } else {
                 holder.load();
             }
 
             assertEquals(1, hookCalls.get());
-            assertThrows(NullPointerException.class, holder::data);
+            ThreadBoundConfig published = holder.data();
+            assertSame(published, holder.data());
             holder.close();
         } finally {
             ThreadBoundConfig.nestedOperation = null;
@@ -231,14 +260,14 @@ class ConfigHolderSynchronousTest {
     @Test
     void testFallsBackAndBacksUpMalformedDataOnLoad(@TempDir Path tempDir) throws Exception {
         ConfigHolder<TestFixtures.ConfigWithExtension> holder = holder(tempDir);
-        Path file = tempDir.resolve("with-extension.json5");
+        Path file = tempDir.resolve("mod").resolve("with-extension.json5");
         Files.writeString(file, "{");
 
         holder.load();
 
         assertEquals(1, holder.data().value);
         assertFalse(Files.exists(file));
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(tempDir.resolve("mod"))) {
             assertEquals(1, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }
@@ -248,14 +277,14 @@ class ConfigHolderSynchronousTest {
         ConfigHolder<TestFixtures.StrictConfigWithExtension> holder =
             LiteConfig.holder(TestFixtures.StrictConfigWithExtension.class)
                 .modId("mod").baseDir(tempDir).create();
-        Path file = tempDir.resolve("strict-with-extension.json5");
+        Path file = tempDir.resolve("mod").resolve("strict-with-extension.json5");
         Files.writeString(file, "{");
 
         LiteConfigException failure = assertThrows(LiteConfigException.class, holder::load);
 
         assertEquals(ConfigError.MALFORMED_CONFIG_DATA, failure.error());
         assertTrue(Files.exists(file));
-        try (var entries = Files.list(tempDir)) {
+        try (var entries = Files.list(tempDir.resolve("mod"))) {
             assertEquals(0, entries.filter(p -> p.getFileName().toString().contains(".corrupt-")).count());
         }
     }
@@ -377,9 +406,10 @@ class ConfigHolderSynchronousTest {
     public static class ThreadBoundConfig implements ConfigExtension {
         static Thread gameThread;
         static Runnable nestedOperation;
+        static Runnable listenerOperation;
         static final List<String> events = new ArrayList<>();
 
-        @Entry(callback = "changed")
+        @Entry(listener = "changed")
         public int value = 1;
 
         @Override
@@ -400,8 +430,10 @@ class ConfigHolderSynchronousTest {
         }
 
         private void changed(Integer before, Integer after, boolean fromSync) {
-            record("callback");
-            runNestedOperation();
+            record("listener");
+            if (listenerOperation != null) {
+                listenerOperation.run();
+            }
         }
 
         private static void runNestedOperation() {

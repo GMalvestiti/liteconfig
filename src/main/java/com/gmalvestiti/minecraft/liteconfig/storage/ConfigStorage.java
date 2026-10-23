@@ -1,15 +1,18 @@
 package com.gmalvestiti.minecraft.liteconfig.storage;
 
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigFormat;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.migration.ConfigMigrations;
+import com.gmalvestiti.minecraft.liteconfig.network.RestartSyncStore;
 import com.gmalvestiti.minecraft.liteconfig.storage.format.ConfigTextFormat;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -29,33 +32,45 @@ public final class ConfigStorage<T> {
     private static final String BACKUP_SUFFIX = ".corrupt-";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
     private static final int REPLACE_ATTEMPTS = 5;
-    private static final long REPLACE_BACKOFF_MILLIS = 5L;
 
     private final Class<T> configType;
-    private final Path path;
+    private final ConfigPathResolver pathResolver;
     private final ConfigTextFormat format;
     private final ConfigScope scope;
 
     public ConfigStorage(Class<T> configType, ConfigPathResolver pathResolver, ConfigScope scope) {
         this.configType = Objects.requireNonNull(configType, "configType");
-        this.path = Objects.requireNonNull(pathResolver, "pathResolver").resolveForConfig(configType);
+        this.pathResolver = Objects.requireNonNull(pathResolver, "pathResolver");
+        pathResolver.resolveForConfig(configType);
         this.format = ConfigTextFormat.of(ConfigFormat.of(configType));
         this.scope = Objects.requireNonNull(scope, "scope");
     }
 
     public T read() {
-        String text;
+        Path path = pathResolver.currentPathForConfig(configType);
 
-        try {
-            text = Files.readString(path, StandardCharsets.UTF_8);
-        } catch (NoSuchFileException absent) {
-            return null;
-        } catch (IOException ex) {
-            throw scope.exception(ConfigError.IO_LOAD_FAILURE, ex, path);
+        if (path == null) {
+            if (pathResolver.type() != ConfigType.WORLD) {
+                return null;
+            }
+            path = pathResolver.restartPathForConfig(configType);
         }
 
-        JsonObject tree = decode(() -> format.readTree(text));
-        return decode(() -> ConfigBinder.fromTree(ConfigMigrations.of(configType).apply(tree, scope), configType));
+        byte[] bytes = RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope).readFile();
+        if (bytes == null) {
+            return null;
+        }
+
+        String text;
+        try {
+            text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (CharacterCodingException failure) {
+            throw scope.exception(ConfigError.IO_LOAD_FAILURE, failure, path);
+        }
+
+        Path source = path;
+        JsonObject tree = decode(source, () -> format.readTree(text));
+        return decode(source, () -> ConfigSerialization.fromTree(ConfigMigrations.of(configType).apply(tree, scope), configType));
     }
 
     /**
@@ -63,7 +78,7 @@ public final class ConfigStorage<T> {
      * file itself is kept; anything else, including an empty result, means the text was simply
      * not readable as this config.
      */
-    private <R> R decode(Supplier<R> step) {
+    private <R> R decode(Path path, Supplier<R> step) {
         R decoded;
 
         try {
@@ -83,8 +98,23 @@ public final class ConfigStorage<T> {
 
     public void write(T data) {
         Objects.requireNonNull(data, "data");
-        Path temp = temporarySibling(path);
 
+        Path path = pathResolver.currentPathForConfig(configType);
+        if (path == null) {
+            return;
+        }
+
+        RestartSyncStore journal = RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope);
+        if (journal.journaled()) {
+            try {
+                journal.writeFile(render(data).getBytes(StandardCharsets.UTF_8));
+            } catch (RuntimeException failure) {
+                throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
+            }
+            return;
+        }
+
+        Path temp = temporarySibling(path);
         try {
             Files.createDirectories(path.getParent());
             Files.writeString(temp, render(data), StandardCharsets.UTF_8);
@@ -97,12 +127,34 @@ public final class ConfigStorage<T> {
     }
 
     private String render(T data) {
-        JsonObject tree = ConfigMigrations.of(configType).stamp(ConfigBinder.toTree(data).getAsJsonObject());
+        JsonObject tree = ConfigMigrations.of(configType).stamp(ConfigSerialization.toTree(data).getAsJsonObject());
         return format.writeTree(tree, configType);
     }
 
+    public PreparedWrite prepareRestartWrite(T data) {
+        Path path = pathResolver.restartPathForConfig(configType);
+        try {
+            return new PreparedWrite(RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope),
+                render(data).getBytes(StandardCharsets.UTF_8));
+        } catch (RuntimeException failure) {
+            throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
+        }
+    }
+
+    public record PreparedWrite(RestartSyncStore file, byte[] bytes) {
+        public void stage(RestartSyncStore.Transaction transaction) {
+            transaction.stageFile(file, bytes);
+        }
+    }
+
     public void backupCorrupted() {
-        if (!Files.exists(path)) {
+        Path path = pathResolver.currentPathForConfig(configType);
+
+        if (path == null && pathResolver.type() == ConfigType.WORLD) {
+            path = pathResolver.restartPathForConfig(configType);
+        }
+
+        if (path == null) {
             return;
         }
 
@@ -123,7 +175,7 @@ public final class ConfigStorage<T> {
     }
 
     private void replace(Path source, Path target) throws IOException {
-        for (int attempt = 0; ; attempt++) {
+        for (int attempt = 0; attempt < REPLACE_ATTEMPTS; attempt++) {
             try {
                 move(source, target);
                 return;
@@ -131,8 +183,6 @@ public final class ConfigStorage<T> {
                 if (attempt == REPLACE_ATTEMPTS - 1) {
                     throw contended;
                 }
-
-                backOff(attempt);
             }
         }
     }
@@ -142,17 +192,6 @@ public final class ConfigStorage<T> {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (AtomicMoveNotSupportedException unsupported) {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private void backOff(int attempt) throws IOException {
-        try {
-            Thread.sleep(REPLACE_BACKOFF_MILLIS << attempt);
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            InterruptedIOException interrupted = new InterruptedIOException("Config write retry interrupted");
-            interrupted.initCause(ex);
-            throw interrupted;
         }
     }
 

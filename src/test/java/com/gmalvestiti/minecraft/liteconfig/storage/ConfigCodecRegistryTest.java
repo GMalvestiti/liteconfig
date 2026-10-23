@@ -64,7 +64,7 @@ class ConfigCodecRegistryTest {
             config.palette = List.of(new RgbColor(8, 9), new RgbColor(10, 11));
         });
 
-        String stored = Files.readString(tempDir.resolve("codec-values.json5"));
+        String stored = Files.readString(tempDir.resolve("mod").resolve("codec-values.json5"));
         assertTrue(stored.contains("\"primary\": \"3:4\""));
         assertTrue(stored.contains("\"palette\": \"8:9;10:11\""));
 
@@ -96,7 +96,7 @@ class ConfigCodecRegistryTest {
 
         assertTrue(LiteConfig.codecs().find(HolderValue.class).isPresent());
         assertTrue(LiteConfig.codecs().findStream(HolderValue.class).isPresent());
-        assertTrue(Files.readString(tempDir.resolve("holder-codec.json5")).contains("\"value\": 4"));
+        assertTrue(Files.readString(tempDir.resolve("mod").resolve("holder-codec.json5")).contains("\"value\": 4"));
     }
 
     @Test
@@ -135,7 +135,7 @@ class ConfigCodecRegistryTest {
             config.palette = List.of(new RgbColor(8, 9), new RgbColor(10, 11));
         });
 
-        String stored = Files.readString(tempDir.resolve("codec-values.toml"));
+        String stored = Files.readString(tempDir.resolve("mod").resolve("codec-values.toml"));
         assertTrue(stored.contains("primary = \"3:4\""));
         assertTrue(stored.contains("palette = \"8:9;10:11\""));
 
@@ -228,7 +228,7 @@ class ConfigCodecRegistryTest {
 
         assertTrue(LiteConfig.codecs().find(NetworkOnlyValue.class).isEmpty());
         assertTrue(LiteConfig.codecs().findStream(NetworkOnlyValue.class).isPresent());
-        assertEquals(7, ConfigBinder.copy(new NetworkOnlyValue(7), NetworkOnlyValue.class).value());
+        assertEquals(7, ConfigSerialization.copy(new NetworkOnlyValue(7), NetworkOnlyValue.class).value());
     }
 
     @Test
@@ -316,7 +316,7 @@ class ConfigCodecRegistryTest {
 
         assertEquals(new NetworkRange(4, 12), holder.data().range);
         assertEquals(new NetworkRange(8, 20), decoded);
-        assertTrue(Files.readString(tempDir.resolve("network-codec.json5")).contains("\"minimum\": 4"));
+        assertTrue(Files.readString(tempDir.resolve("mod").resolve("network-codec.json5")).contains("\"minimum\": 4"));
     }
 
     private static void registerCodecs() {

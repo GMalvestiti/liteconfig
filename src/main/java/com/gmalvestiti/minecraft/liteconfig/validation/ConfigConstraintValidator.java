@@ -29,11 +29,6 @@ public final class ConfigConstraintValidator {
     private final ConfigFieldPlan fields;
     private final Set<String> requiredChoices;
     private final Set<String> requiredObjects;
-    private final boolean metadataAware;
-
-    public ConfigConstraintValidator(ConfigFieldAccess fieldAccess) {
-        this(fieldAccess, ConfigFieldPlan.of(Object.class), null);
-    }
 
     public ConfigConstraintValidator(
         ConfigFieldAccess fieldAccess,
@@ -42,17 +37,12 @@ public final class ConfigConstraintValidator {
     ) {
         this.fieldAccess = fieldAccess;
         this.fields = fields;
-        this.metadataAware = metadata != null;
-        this.requiredChoices = metadata == null
-            ? Set.of()
-            : metadata.flatten()
-                .filter(property -> !property.constraints().allowedValues().isEmpty())
-                .filter(property -> property.defaultValue() != null)
-                .map(ConfigProperty::path)
-                .collect(Collectors.toUnmodifiableSet());
-        this.requiredObjects = metadata == null
-            ? Set.of()
-            : requiredObjectsOf(metadata);
+        this.requiredChoices = metadata.flatten()
+            .filter(property -> !property.constraints().allowedValues().isEmpty())
+            .filter(property -> property.defaultValue() != null)
+            .map(ConfigProperty::path)
+            .collect(Collectors.toUnmodifiableSet());
+        this.requiredObjects = requiredObjectsOf(metadata);
     }
 
     public List<Violation> run(Object candidate) {
@@ -214,8 +204,7 @@ public final class ConfigConstraintValidator {
      */
     private void checkMissingChoice(DeclaredConfig.Property described, String path, List<Violation> violations) {
         List<String> allowed = described.constraints().allowedValues();
-        if (allowed.isEmpty()
-            || (metadataAware && !requiredChoices.contains(path))) {
+        if (!requiredChoices.contains(path)) {
             return;
         }
 

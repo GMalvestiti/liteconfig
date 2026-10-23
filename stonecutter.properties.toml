@@ -4,7 +4,7 @@ mod.name="LiteConfig"
 mod.group="com.gmalvestiti.minecraft"
 mod.version="1.3.0"
 
-loomx.loom_version="1.17-SNAPSHOT"
+loomx.loom_version="1.18-SNAPSHOT"
 
 deps.fabric_loader="0.19.5"
 deps.json5_java="3.0.0"

@@ -2,6 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.support;
 
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigFormat;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Ignore;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
@@ -219,6 +220,18 @@ public final class TestFixtures {
         updateFailurePolicy = FailurePolicy.STRICT
     )
     public static class StrictConfigWithExtension extends ConfigWithExtension {}
+
+    @Config(name = "with-extension", readOnly = true)
+    public static class ReadOnlyConfigWithExtension extends ConfigWithExtension {}
+
+    @Config(name = "strict-with-extension", readOnly = true,
+        readFailurePolicy = FailurePolicy.STRICT,
+        writeFailurePolicy = FailurePolicy.STRICT,
+        updateFailurePolicy = FailurePolicy.STRICT)
+    public static class StrictReadOnlyConfigWithExtension extends ConfigWithExtension {}
+
+    @Config(name = "throwing-validator", readOnly = true)
+    public static class ReadOnlyThrowingValidatorConfig extends ThrowingValidatorConfig {}
 
     @Config(name = "strict-entries", updateFailurePolicy = FailurePolicy.STRICT)
     public static class StrictEntryConfig extends EntryConfig {}
@@ -439,7 +452,7 @@ public final class TestFixtures {
         public int revision = 1;
     }
 
-    @Config(name = "synced", sync = true)
+    @Config(name = "synced", sync = SyncMode.ENABLED)
     public static class SyncedConfig {
         public int maxTeamSize = 4;
 
@@ -460,10 +473,10 @@ public final class TestFixtures {
     public static class OptedInFieldConfig {
         public String auditLogPath = "logs/audit";
 
-        @Entry(sync = true)
+        @Entry(sync = SyncMode.ENABLED)
         public int maxTeamSize = 4;
 
-        @Entry(sync = true)
+        @Entry(sync = SyncMode.ENABLED)
         public SyncedSection section = new SyncedSection();
     }
 

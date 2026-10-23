@@ -1,8 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.platform.fabric;
 
 //? if fabric {
-import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
-import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
+import com.gmalvestiti.minecraft.liteconfig.platform.CommonServerPlatform;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
@@ -11,13 +10,8 @@ import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
-
-import java.util.List;
 
 public class FabricEntrypoint implements ModInitializer {
 
@@ -33,28 +27,24 @@ public class FabricEntrypoint implements ModInitializer {
             ConfigSyncS2CPacket.TYPE, ConfigSyncS2CPacket.STREAM_CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(ConfigSyncRequestC2SPacket.TYPE, (request, context) -> {
+            if (!ServerConfigSync.isCurrentServer(context.server())) {
+                return;
+            }
+
             for (ConfigSyncS2CPacket payload : ServerConfigSync.payloadsFor(request)) {
                 ServerPlayNetworking.send(context.player(), payload);
             }
         });
 
-        ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-            LiteConfigCommon.ACTIVE_SERVER = server;
-            ConfigEventThreads.setServerMainThread(server);
-            ServerConfigSync.setServerMainThreadExecutor(server);
-        });
+        ServerLifecycleEvents.SERVER_STARTING.register(
+            server -> CommonServerPlatform.starting(new FabricServerPlatform(server)));
 
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-            if (LiteConfigCommon.ACTIVE_SERVER == server) {
-                LiteConfigCommon.ACTIVE_SERVER = null;
-            }
+        ServerLifecycleEvents.SERVER_STARTED.register(CommonServerPlatform::started);
 
-            ConfigEventThreads.clearServerMainThread(server);
-            ServerConfigSync.clearServerMainThreadExecutor(server);
-        });
+        ServerLifecycleEvents.SERVER_STOPPED.register(CommonServerPlatform::stopped);
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, joinedServer) -> {
-            if (LiteConfigCommon.ACTIVE_SERVER != joinedServer
+            if (!ServerConfigSync.isCurrentServer(joinedServer)
                 || !ServerPlayNetworking.canSend(handler.getPlayer(), ConfigSyncHandshakeS2CPacket.TYPE)) {
                 return;
             }
@@ -63,39 +53,6 @@ public class FabricEntrypoint implements ModInitializer {
                 ServerPlayNetworking.send(handler.getPlayer(), payload);
             }
         });
-
-        ServerConfigSync.setBroadcastScheduler((payloads) -> {
-            MinecraftServer server = LiteConfigCommon.ACTIVE_SERVER;
-
-            server.execute(() -> {
-                for (ServerPlayer player : PlayerLookup.all(server)) {
-                    if (ServerPlayNetworking.canSend(player, ConfigSyncS2CPacket.TYPE)) {
-                        payloads.forEach(payload -> ServerPlayNetworking.send(player, payload));
-                    }
-                }
-            });
-        });
-
-        ServerConfigSync.setManifestScheduler(() -> {
-            MinecraftServer server = LiteConfigCommon.ACTIVE_SERVER;
-
-            server.execute(() -> {
-                List<ServerPlayer> players = PlayerLookup.all(server).stream()
-                    .filter(player -> ServerPlayNetworking.canSend(player, ConfigSyncHandshakeS2CPacket.TYPE))
-                    .toList();
-
-                if (players.isEmpty()) {
-                    return;
-                }
-
-                List<ConfigSyncHandshakeS2CPacket> payloads = ServerConfigSync.beginHandshake();
-                for (ServerPlayer player : players) {
-                    payloads.forEach(payload -> ServerPlayNetworking.send(player, payload));
-                }
-            });
-        });
-
-        ConfigSyncRegistry.initialize();
     }
 }
 //?}

@@ -37,10 +37,10 @@ class LiteConfigExceptionTest {
         RuntimeException cause = new RuntimeException("cause");
         List<Violation> violations = List.of(Violation.of("rule", "broken"));
 
-        LiteConfigException ex = new LiteConfigException(
-            ConfigError.VALIDATION_FAILED, "msg", violations, cause);
+        LiteConfigException ex = LiteConfigException.of(
+            ConfigError.VALIDATION_FAILED, "mymod", "msg", violations, cause);
 
-        assertEquals("msg", ex.getMessage());
+        assertEquals("[mymod] msg", ex.getMessage());
         assertEquals(ConfigError.VALIDATION_FAILED, ex.error());
         assertSame(cause, ex.getCause());
         assertEquals(List.of("rule"), ex.violations().stream().map(Violation::id).toList());
@@ -51,8 +51,8 @@ class LiteConfigExceptionTest {
         List<Violation> mutable = new ArrayList<>();
         mutable.add(Violation.of("rule", "broken"));
 
-        LiteConfigException ex = new LiteConfigException(
-            ConfigError.VALIDATION_FAILED, "msg", mutable, null);
+        LiteConfigException ex = LiteConfigException.of(
+            ConfigError.VALIDATION_FAILED, "mymod", "msg", mutable, null);
         mutable.clear();
 
         assertEquals(1, ex.violations().size(), "the exception must not alias the caller's list");
@@ -61,14 +61,14 @@ class LiteConfigExceptionTest {
 
     @Test
     void testReadsTheDefectFlagFromItsErrorCode() {
-        assertTrue(new LiteConfigException(ConfigError.UNEXPECTED_FAILURE, "msg", List.of(), null).defect());
-        assertFalse(new LiteConfigException(ConfigError.VALIDATION_FAILED, "msg", List.of(), null).defect());
+        assertTrue(LiteConfigException.of(ConfigError.UNEXPECTED_FAILURE, "mymod", "msg", List.of(), null).defect());
+        assertFalse(LiteConfigException.of(ConfigError.VALIDATION_FAILED, "mymod", "msg", List.of(), null).defect());
     }
 
     @Test
     void testDropsViolationsButKeepsTheFailureAcrossJavaSerialization() throws Exception {
-        LiteConfigException original = new LiteConfigException(
-            ConfigError.VALIDATION_FAILED, "msg", List.of(Violation.of("rule", "broken")), null);
+        LiteConfigException original = LiteConfigException.of(
+            ConfigError.VALIDATION_FAILED, "mymod", "msg", List.of(Violation.of("rule", "broken")), null);
 
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
@@ -82,15 +82,15 @@ class LiteConfigExceptionTest {
 
         assertTrue(restored.violations().isEmpty(), "transient violations must not survive deserialization");
         assertEquals(ConfigError.VALIDATION_FAILED, restored.error());
-        assertEquals("msg", restored.getMessage());
+        assertEquals("[mymod] msg", restored.getMessage());
     }
 
     @Test
     void testRejectsMissingErrorCodeAndViolations() {
         assertThrows(NullPointerException.class,
-            () -> new LiteConfigException(null, "msg", List.of(), null));
+            () -> LiteConfigException.of(null, "mymod", "msg", List.of(), null));
         assertThrows(NullPointerException.class,
-            () -> new LiteConfigException(ConfigError.IO_LOAD_FAILURE, "msg", null, null));
+            () -> LiteConfigException.of(ConfigError.IO_LOAD_FAILURE, "mymod", "msg", null, null));
         assertThrows(NullPointerException.class,
             () -> LiteConfigException.of(ConfigError.IO_LOAD_FAILURE, null, "msg", List.of(), null));
         assertThrows(NullPointerException.class,

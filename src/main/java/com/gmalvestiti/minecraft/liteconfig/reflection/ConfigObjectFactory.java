@@ -40,17 +40,4 @@ public final class ConfigObjectFactory {
         }
     }
 
-    public static <T> T newInstanceOrNull(Class<T> type) {
-        Constructor<?> constructor = CONSTRUCTORS.get(type);
-
-        if (constructor == null) {
-            return null;
-        }
-
-        try {
-            return type.cast(constructor.newInstance());
-        } catch (ReflectiveOperationException | RuntimeException unavailable) {
-            return null;
-        }
-    }
 }

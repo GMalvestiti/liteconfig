@@ -1,4 +1,5 @@
 {
-  "liteconfig.disconnect.restart_required": "Server config changed restart-only settings. Restart the game before reconnecting.",
-  "liteconfig.disconnect.sync_failed": "Server configuration synchronization failed."
+  "liteconfig.disconnect.restart_required_world": "This world's settings have changed.\n\nReconnect to apply the new settings.",
+  "liteconfig.disconnect.sync_failed": "Could not apply this server's configuration.\n\nPlease reconnect. If the problem persists, check the game log for details.",
+  "liteconfig.disconnect.restart_required_server": "This server requires settings that take effect after a restart.\n\nThe required settings have been saved. Restart Minecraft, then reconnect."
 }

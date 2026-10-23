@@ -22,7 +22,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Codec registrations for custom config value types.
@@ -41,7 +40,7 @@ public final class ConfigCodecRegistry {
 
     private volatile Map<Type, Registration> registrations = Map.of();
     private final Set<Type> plannedTypes = Collections.newSetFromMap(new WeakHashMap<>());
-    private final AtomicInteger generation = new AtomicInteger();
+    private volatile int generation;
 
     /**
      * Registers a Codec class.
@@ -91,6 +90,7 @@ public final class ConfigCodecRegistry {
             current == null ? null : current.streamCodec(),
             current == null ? null : current.streamSchema()
         ));
+        generation++;
 
         return this;
     }
@@ -103,7 +103,7 @@ public final class ConfigCodecRegistry {
      * @param <T> value type
      * @return this registry
      */
-    public synchronized <T> ConfigCodecRegistry registerStreamCodec(
+    public <T> ConfigCodecRegistry registerStreamCodec(
         Type type,
         StreamCodec<ByteBuf, T> streamCodec
     ) {
@@ -145,16 +145,10 @@ public final class ConfigCodecRegistry {
     }
 
     private void put(Type type, Registration registration) {
-        Registration previous = registrations.get(type);
-
         Map<Type, Registration> next = new LinkedHashMap<>(registrations);
         next.put(type, registration);
 
         registrations = Map.copyOf(next);
-
-        if (registration.codec() != null && (previous == null || previous.codec() == null)) {
-            generation.incrementAndGet();
-        }
     }
 
     /**
@@ -166,7 +160,7 @@ public final class ConfigCodecRegistry {
      * @return the current registration generation
      */
     public int generation() {
-        return generation.get();
+        return generation;
     }
 
     /**

@@ -16,7 +16,7 @@ import java.util.function.Consumer;
  * lifetime of your mod. File access begins only when the builder creates a holder.
  *
  * <pre>{@code
- * @Config(name = "mymod")                      // -> config/mymod.json5
+ * @Config(name = "mymod")                      // -> config/mymod/mymod.json5
  * public final class MyModConfig {
  *     public boolean showHints = true;
  * }
@@ -33,8 +33,9 @@ import java.util.function.Consumer;
  * declared by {@link Config}. See {@link ConfigBuilder} for holder options and {@link Config}
  * for how the file path is resolved.
  *
- * <p>{@code create()} already loads, so {@link ConfigHolder#load()} is only needed to re-read a
- * file that changed after startup.
+ * <p>{@code create()} loads configs immediately. World configs start with declared
+ * defaults and load when a world becomes active. {@link ConfigHolder#load()} re-reads an active
+ * local file that changed after startup.
  *
  * @see ConfigBuilder
  * @see ConfigHolder

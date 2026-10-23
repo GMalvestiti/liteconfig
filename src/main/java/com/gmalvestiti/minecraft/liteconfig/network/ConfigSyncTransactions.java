@@ -3,6 +3,7 @@ package com.gmalvestiti.minecraft.liteconfig.network;
 import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
+import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -20,6 +21,40 @@ final class ConfigSyncTransactions {
 
     ConfigSyncTransactions(Function<String, SyncedConfig<?>> synced) {
         this.synced = synced;
+    }
+
+    ClientSyncResult receiveCached(Map<String, ConfigBytes> configs) {
+        try {
+            if ((long) pendingEntries + configs.size() > ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES) {
+                throw new IllegalArgumentException("Config sync transaction exceeds pending entry limit");
+            }
+
+            Map<String, ConfigBytes> cached = new LinkedHashMap<>(configs);
+            if ((long) pendingEntries + cached.size() > ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES) {
+                throw new IllegalArgumentException("Config sync transaction exceeds pending entry limit");
+            }
+
+            long bytes = pendingBytes;
+            for (Map.Entry<String, ConfigBytes> entry : cached.entrySet()) {
+                ConfigSyncProtocol.validateId(entry.getKey());
+                ConfigBytes value = entry.getValue();
+
+                if (value.size() > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
+                    throw new IllegalArgumentException("Cached config sync payload exceeds config byte limit");
+                }
+
+                bytes += value.size();
+                if (bytes > ConfigSyncProtocol.MAX_TRANSACTION_BYTES) {
+                    throw new IllegalArgumentException("Config sync transaction exceeds pending byte limit");
+                }
+            }
+
+            return apply(cached);
+        } catch (RuntimeException failure) {
+            clear();
+            LiteConfigCommon.error("Failed to receive cached config sync transaction", failure);
+            return ClientSyncResult.failed();
+        }
     }
 
     ClientSyncResult receive(ConfigSyncS2CPacket packet) {
@@ -99,21 +134,31 @@ final class ConfigSyncTransactions {
         }
 
         boolean restartRequired = false;
+        TranslationKey disconnectReason = null;
+
         int committed = 0;
+        RestartSyncStore.Transaction caches = new RestartSyncStore.Transaction();
 
         try {
             for (SyncedConfig.Prepared<?> change : prepared) {
 
-                if (!change.commitDeferred()) {
+                if (!change.commitDeferred(caches)) {
                     rollback(prepared, committed);
+                    caches.abort();
                     return ClientSyncResult.failed();
                 }
 
                 committed++;
                 restartRequired |= change.restartRequired();
+                TranslationKey reason = change.disconnectReason();
+                if (reason == TranslationKey.RESTART_REQUIRED_SERVER || disconnectReason == null) {
+                    disconnectReason = reason;
+                }
             }
+            caches.commit();
         } catch (RuntimeException failure) {
             rollback(prepared, committed);
+            caches.abort();
             LiteConfigCommon.error("Failed to apply config sync transaction", failure);
             return ClientSyncResult.failed();
         }
@@ -125,7 +170,7 @@ final class ConfigSyncTransactions {
             return ClientSyncResult.failed();
         }
 
-        return ClientSyncResult.completed(restartRequired);
+        return ClientSyncResult.completed(restartRequired, disconnectReason);
     }
 
     void clear() {
@@ -136,10 +181,14 @@ final class ConfigSyncTransactions {
 
     private static void rollback(List<SyncedConfig.Prepared<?>> prepared, int committed) {
         for (int index = committed - 1; index >= 0; index--) {
-            if (!prepared.get(index).rollback()) {
-                LiteConfigCommon.error(
-                    "Failed to roll back a partially applied config sync transaction",
-                    new IllegalStateException("Config changed or could not be persisted during rollback"));
+            try {
+                if (!prepared.get(index).rollback()) {
+                    LiteConfigCommon.error(
+                        "Failed to roll back a partially applied config sync transaction",
+                        new IllegalStateException("Config changed after its sync transition"));
+                }
+            } catch (RuntimeException failure) {
+                LiteConfigCommon.error("Failed to restore config state during sync rollback", failure);
             }
         }
     }

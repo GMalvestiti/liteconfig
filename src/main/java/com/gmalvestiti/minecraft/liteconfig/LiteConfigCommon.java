@@ -1,17 +1,14 @@
 package com.gmalvestiti.minecraft.liteconfig;
 
-import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class LiteConfigCommon {
+public final class LiteConfigCommon {
 
     public static final String MOD_ID = /*$ mod_id*/ "liteconfig";
     private static final Logger LOGGER = LoggerFactory.getLogger(LiteConfigCommon.MOD_ID);
 
-    public static volatile MinecraftServer ACTIVE_SERVER;
-
-    public LiteConfigCommon() {}
+    private LiteConfigCommon() {}
 
     public static void info(String message) {
         LOGGER.info("[{}] {}", LiteConfigCommon.MOD_ID, message);

@@ -4,56 +4,40 @@ import com.gmalvestiti.minecraft.liteconfig.LiteConfigCommon;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
+import com.gmalvestiti.minecraft.liteconfig.platform.CommonServerPlatform;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
-import java.lang.ref.WeakReference;
 
 public final class ServerConfigSync {
 
     private static final AtomicLong NEXT_TRANSACTION_ID = new AtomicLong();
-    private static final AtomicReference<Executor> SERVER_MAIN_THREAD_EXECUTOR = new AtomicReference<>();
-    private static volatile Consumer<List<ConfigSyncS2CPacket>> BROADCAST_SCHEDULER = ignored -> {};
-    private static volatile Runnable MANIFEST_SCHEDULER = () -> {};
 
-    private ServerConfigSync() {}
-
-    public static void setServerMainThreadExecutor(Executor executor) {
-        SERVER_MAIN_THREAD_EXECUTOR.set(Objects.requireNonNull(executor, "executor"));
-        ConfigSyncRegistry.activate();
+    private ServerConfigSync() {
     }
 
-    public static void clearServerMainThreadExecutor(Executor executor) {
-        SERVER_MAIN_THREAD_EXECUTOR.compareAndSet(executor, null);
+    public static boolean isCurrent(CommonServerPlatform platform) {
+        return CommonServerPlatform.current() == platform;
+    }
+
+    public static boolean isCurrentServer(Object server) {
+        CommonServerPlatform platform = CommonServerPlatform.current();
+        return platform != null && platform.identity() == server;
     }
 
     static Executor serverMainThreadExecutor() {
-        return SERVER_MAIN_THREAD_EXECUTOR.get();
+        return CommonServerPlatform.current();
     }
 
-    public static void setBroadcastScheduler(Consumer<List<ConfigSyncS2CPacket>> scheduler) {
-        BROADCAST_SCHEDULER = Objects.requireNonNull(scheduler, "scheduler");
-    }
-
-    public static void setManifestScheduler(Runnable scheduler) {
-        MANIFEST_SCHEDULER = Objects.requireNonNull(scheduler, "scheduler");
-    }
-
-    static void refreshManifest() {
-        Executor executor = SERVER_MAIN_THREAD_EXECUTOR.get();
-        if (executor != null) {
-            executor.execute(() -> {
-                if (SERVER_MAIN_THREAD_EXECUTOR.get() == executor) {
-                    MANIFEST_SCHEDULER.run();
-                }
-            });
+    public static void refreshManifest() {
+        CommonServerPlatform platform = CommonServerPlatform.current();
+        if (platform != null) {
+            platform.refreshManifest();
         }
     }
 
@@ -64,7 +48,7 @@ public final class ServerConfigSync {
 
         Map<String, ConfigBytes> hashes = new TreeMap<>();
         for (SyncedConfig<?> synced : ConfigSyncRegistry.values()) {
-            if (synced.ready()) {
+            if (synced.ready() && synced.locallyActive()) {
                 hashes.put(synced.id(), synced.cachedSnapshot().hash());
             }
         }
@@ -100,7 +84,7 @@ public final class ServerConfigSync {
 
             SyncedConfig<?> synced = ConfigSyncRegistry.get(id);
 
-            if (synced != null && synced.ready()) {
+            if (synced != null && synced.ready() && synced.locallyActive()) {
                 configs.put(id, synced.cachedSnapshot().data());
             }
         }
@@ -108,28 +92,29 @@ public final class ServerConfigSync {
         return packets(configs);
     }
 
-    static void broadcast(SyncedConfig<?> synced) {
-        Executor executor = SERVER_MAIN_THREAD_EXECUTOR.get();
+    static void scheduleBroadcast(SyncedConfig<?> synced) {
+        CommonServerPlatform platform = CommonServerPlatform.current();
 
-        if (executor == null) {
+        if (platform == null || !synced.locallyActive()) {
             return;
         }
 
+        String syncId = synced.id();
         WeakReference<SyncedConfig<?>> reference = new WeakReference<>(synced);
-        executor.execute(() -> {
-            if (SERVER_MAIN_THREAD_EXECUTOR.get() != executor) {
-                return;
-            }
 
+        platform.broadcast(() -> {
             SyncedConfig<?> current = reference.get();
-            if (current == null || ConfigSyncRegistry.get(current.id()) != current) {
-                return;
+
+            if (current == null || ConfigSyncRegistry.get(syncId) != current || !current.locallyActive()) {
+                return List.of();
             }
 
-            SyncedConfig.Snapshot snapshot = current.changedSnapshot();
-
-            if (snapshot != null) {
-                BROADCAST_SCHEDULER.accept(packets(Map.of(current.id(), snapshot.data())));
+            try {
+                SyncedConfig.Snapshot snapshot = current.changedSnapshot();
+                return snapshot == null ? List.of() : packets(Map.of(syncId, snapshot.data()));
+            } catch (RuntimeException failure) {
+                LiteConfigCommon.error("Failed to build config sync update for " + syncId, failure);
+                return List.of();
             }
         });
     }

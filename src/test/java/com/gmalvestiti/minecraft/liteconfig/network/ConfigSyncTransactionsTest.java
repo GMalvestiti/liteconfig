@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
+import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,58 @@ class ConfigSyncTransactionsTest {
 
     private final ConfigSyncTransactions transactions =
         new ConfigSyncTransactions(Map.<String, SyncedConfig<?>>of()::get);
+
+    @Test
+    void cachedTransactionsDoNotConsumeOrCompleteRemoteTransactionIds() {
+        ConfigBytes bytes = ConfigBytes.of(new byte[0]);
+        assertFalse(transactions.receive(packet(0, false, Map.of("remote", bytes))).completed());
+        assertNull(transactions.receiveCached(Map.of("cached", bytes)).disconnectReason());
+        assertFailed(transactions.receive(packet(0, true, Map.of("remote", bytes))));
+    }
+
+    @Test
+    void cachedTransactionsDoNotNeedAPendingSlot() {
+        for (int id = 0; id < ConfigSyncProtocol.MAX_PENDING_TRANSACTIONS; id++) {
+            assertFalse(transactions.receive(packet(id, false, Map.of())).completed());
+        }
+        assertNull(transactions.receiveCached(Map.of()).disconnectReason());
+    }
+
+    @Test
+    void cachedTransactionsRespectAggregatePendingByteLimitAndClearOnFailure() {
+        ConfigBytes bytes = ConfigBytes.of(new byte[ConfigSyncProtocol.MAX_CONFIG_BYTES]);
+        int entries = ConfigSyncProtocol.MAX_TRANSACTION_BYTES / bytes.size();
+        Map<String, ConfigBytes> cached = new LinkedHashMap<>();
+        for (int index = 0; index < entries; index++) {
+            cached.put("cached." + index, bytes);
+        }
+        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertFalse(transactions.receive(packet(1, false, Map.of("remote", bytes))).completed());
+        assertFailed(transactions.receiveCached(cached));
+        assertNull(transactions.receiveCached(cached).disconnectReason());
+    }
+
+    @Test
+    void cachedTransactionsRespectAggregatePendingEntryLimitAndClearOnFailure() {
+        ConfigBytes bytes = ConfigBytes.of(new byte[0]);
+        Map<String, ConfigBytes> cached = new LinkedHashMap<>();
+        for (int index = 0; index < ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES; index++) {
+            cached.put("cached." + index, bytes);
+        }
+        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertFalse(transactions.receive(packet(1, false, Map.of("remote", bytes))).completed());
+        assertFailed(transactions.receiveCached(cached));
+        assertNull(transactions.receiveCached(cached).disconnectReason());
+    }
+
+    @Test
+    void cachedTransactionsRejectOversizedConfigurationsBeforePreparingAnyEntry() {
+        ConfigSyncTransactions rejecting = new ConfigSyncTransactions(id -> {
+            throw new AssertionError("bounds must be checked before prepare");
+        });
+        assertFailed(rejecting.receiveCached(Map.of("config",
+            ConfigBytes.of(new byte[ConfigSyncProtocol.MAX_CONFIG_BYTES + 1]))));
+    }
 
     @Test
     void singlePacketTransactionsDoNotOccupyPendingSlots() {
@@ -108,6 +161,33 @@ class ConfigSyncTransactionsTest {
             packet(1, true, Map.of("config", ConfigBytes.of(new byte[0])))).disconnectReason());
     }
 
+    @Test
+    void completedRestartResultDoesNotRequestADisconnect() {
+        ClientSyncResult result = ClientSyncResult.completed(true, null);
+
+        assertTrue(result.completed());
+        assertTrue(result.restartRequired());
+        assertNull(result.disconnectReason());
+    }
+
+    @Test
+    void completedRequiredRestartRequestsADisconnectWithoutReportingFailure() {
+        ClientSyncResult result = ClientSyncResult.completed(true, TranslationKey.RESTART_REQUIRED_SERVER);
+
+        assertTrue(result.completed());
+        assertTrue(result.restartRequired());
+        assertEquals(TranslationKey.RESTART_REQUIRED_SERVER, result.disconnectReason());
+    }
+
+    @Test
+    void matchingRestartValuesNeverRequestARestartDisconnect() {
+        ClientSyncResult result = ClientSyncResult.completed(false, TranslationKey.RESTART_REQUIRED_SERVER);
+
+        assertTrue(result.completed());
+        assertFalse(result.restartRequired());
+        assertNull(result.disconnectReason());
+    }
+
     private static ConfigSyncS2CPacket packet(long id, boolean last, Map<String, ConfigBytes> entries) {
         return new ConfigSyncS2CPacket(id, last, entries);
     }
@@ -115,6 +195,6 @@ class ConfigSyncTransactionsTest {
     private static void assertFailed(ClientSyncResult result) {
         assertTrue(result.completed());
         assertFalse(result.restartRequired());
-        assertEquals(ClientConfigSync.SYNC_FAILED, result.disconnectReason());
+        assertEquals(TranslationKey.SYNC_FAILED, result.disconnectReason());
     }
 }

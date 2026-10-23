@@ -26,8 +26,7 @@ final class TomlTextFormat implements ConfigTextFormat {
     @Override
     public JsonObject readTree(String text) {
         CommentedConfig parsed = new TomlParser().parse(new StringReader(text));
-        JsonElement tree = toJsonTree(parsed);
-        return tree.isJsonObject() ? tree.getAsJsonObject() : null;
+        return toJsonTree(parsed);
     }
 
     @Override
@@ -75,9 +74,11 @@ final class TomlTextFormat implements ConfigTextFormat {
             List<Object> values = new ArrayList<>();
 
             for (JsonElement item : element.getAsJsonArray()) {
-                if (!item.isJsonNull()) {
-                    values.add(toTomlValue(item));
+                if (item.isJsonNull()) {
+                    throw new IllegalArgumentException("TOML arrays cannot contain null values");
                 }
+
+                values.add(toTomlValue(item));
             }
 
             return values;
@@ -120,7 +121,7 @@ final class TomlTextFormat implements ConfigTextFormat {
         return table;
     }
 
-    private JsonElement toJsonTree(UnmodifiableConfig config) {
+    private JsonObject toJsonTree(UnmodifiableConfig config) {
         JsonObject object = new JsonObject();
 
         for (UnmodifiableConfig.Entry property : config.entrySet()) {

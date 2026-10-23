@@ -19,6 +19,6 @@ class ConfigModelTest {
         assertSame(first.fields(), second.fields());
         assertSame(first.extensions(), second.extensions());
         assertNotSame(first.metadata(), second.metadata());
-        assertNotSame(first.callbacks(), second.callbacks());
+        assertNotSame(first.listeners(), second.listeners());
     }
 }

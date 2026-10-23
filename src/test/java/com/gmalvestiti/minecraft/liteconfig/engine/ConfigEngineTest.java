@@ -2,9 +2,14 @@ package com.gmalvestiti.minecraft.liteconfig.engine;
 
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigExtension;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.AllowedValues;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
+import com.gmalvestiti.minecraft.liteconfig.storage.ConfigSerialization;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigStorage;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
+import com.gmalvestiti.minecraft.liteconfig.validation.ConfigGuard;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -70,7 +75,7 @@ class ConfigEngineTest {
             TestFixtures.storage(tempDir, TestFixtures.SimpleConfig.class),
             source -> {
                 throw new AssertionError("a root without beforeSave must not be copied");
-            });
+            }, new ConfigGuard<>(model)::normalize);
         TestFixtures.SimpleConfig published = new TestFixtures.SimpleConfig();
         published.value = 7;
 
@@ -130,10 +135,37 @@ class ConfigEngineTest {
                 copy.afterLoadCalled = source.afterLoadCalled;
                 copy.beforeSaveCalled = source.beforeSaveCalled;
                 return copy;
-            });
+            }, new ConfigGuard<>(model)::normalize);
     }
 
     private <T> ConfigEngine<T> engine(Path tempDir, Class<T> type, StateCloner<T> cloner) {
-        return new ConfigEngine<>(TestFixtures.model(type), TestFixtures.storage(tempDir, type), cloner);
+        ConfigModel<T> model = TestFixtures.model(type);
+        return new ConfigEngine<>(
+            model, TestFixtures.storage(tempDir, type), cloner, new ConfigGuard<>(model)::normalize);
+    }
+
+    @Test
+    void normalizesBeforeSaveHookChangesWithoutTouchingTheSource(@TempDir Path directory) {
+        ConfigModel<SaveChoices> model = TestFixtures.model(SaveChoices.class);
+        ConfigStorage<SaveChoices> storage = TestFixtures.storage(directory, SaveChoices.class);
+        ConfigEngine<SaveChoices> engine = new ConfigEngine<>(model, storage,
+            source -> ConfigSerialization.copy(source, SaveChoices.class), new ConfigGuard<>(model)::normalize);
+        SaveChoices source = new SaveChoices();
+
+        engine.save(source);
+
+        assertEquals("mysql", source.database);
+        assertEquals("sqlite", storage.read().database);
+    }
+
+    @Config(name = "save-choices")
+    static class SaveChoices implements ConfigExtension {
+        @AllowedValues({"mysql", "sqlite"})
+        String database = "mysql";
+
+        @Override
+        public void beforeSave() {
+            database = "SQLITE";
+        }
     }
 }

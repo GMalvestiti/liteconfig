@@ -1,7 +1,9 @@
 # 1.3.0
 
+- Full rewrite
 - Added NotNull and NotBlank constraints
-- Sync registry refactor.
+- Added synchronization and config type ownership
+- Added world scoped configs
 
 # 1.2.0
 

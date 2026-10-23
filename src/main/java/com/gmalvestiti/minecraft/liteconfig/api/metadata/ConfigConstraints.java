@@ -1,11 +1,13 @@
 package com.gmalvestiti.minecraft.liteconfig.api.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.EntryNormalization;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Length;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotBlank;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
@@ -41,6 +43,10 @@ import java.util.regex.Pattern;
  * @param hasLength whether the field has a {@link Length} constraint, including an unbounded one
  * @param hasNotNull whether the field has a {@link NotNull} constraint
  * @param hasNotBlank whether the field has a {@link NotBlank} constraint
+ * @param normalization case policy for allowed string values; {@link EntryNormalization#NONE}
+ *                      for fields without {@code @AllowedValues}, including enums
+ * @param trim whether allowed choices and string values are trimmed before case normalization;
+ *             {@code false} for fields without {@code @AllowedValues}, including enums
  */
 public record ConfigConstraints(
     OptionalDouble min,
@@ -53,11 +59,15 @@ public record ConfigConstraints(
     boolean hasPattern,
     boolean hasLength,
     boolean hasNotNull,
-    boolean hasNotBlank
+    boolean hasNotBlank,
+    EntryNormalization normalization,
+    boolean trim
 ) {
 
     public ConfigConstraints {
-        allowedValues = List.copyOf(allowedValues);
+        Objects.requireNonNull(normalization, "normalization");
+        allowedValues = List.copyOf(allowedValues).stream()
+            .map(value -> normalization.apply(value, trim)).toList();
         hasRange = hasRange || min.isPresent() || max.isPresent();
         hasPattern = hasPattern || pattern.isPresent();
         hasLength = hasLength || minLength.isPresent() || maxLength.isPresent();

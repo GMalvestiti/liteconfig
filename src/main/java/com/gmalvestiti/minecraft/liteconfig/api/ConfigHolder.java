@@ -3,6 +3,8 @@ package com.gmalvestiti.minecraft.liteconfig.api;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 
+import java.nio.file.Path;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -32,13 +34,14 @@ import java.util.function.Consumer;
  * }
  * }</pre>
  *
- * <p>Call loads, updates, and saves on the game thread; they complete before returning.
- * Starting another operation on the same config from a mutator, hook, or inline listener is
- * rejected, including through another holder, so nested changes cannot be overwritten.
+ * <p>Loads, updates, and saves complete synchronously on the caller, with failures handled by
+ * the configured policies.
  *
- * <p>A logical-side listener is skipped and logged when that side has no active main-thread
- * executor. Work queued for a server that stops or is replaced is discarded rather than delivered
- * into the next server lifecycle.
+ * <p>Starting another operation on the same config from a mutator or lifecycle hook is rejected,
+ * including through another reference to this holder.
+ *
+ * <p>Each live registration has one holder shared by repeated {@link ConfigBuilder#create()}
+ * calls; builder events are appended on each call. Separate configs have separate holders.
  *
  * <p>Not intended for implementation outside LiteConfig: methods may be added in any minor
  * release. Build holders through {@code LiteConfig.holder(...)}, and wrap this type behind an
@@ -54,8 +57,8 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * <p>This read is lock-free and safe from any thread. Treat the returned object and its nested
      * values as read-only.
      *
-     * <p>Only valid while this holder is open. This hot-path read deliberately does not check
-     * whether the holder is closed; accessing it after release throws {@link NullPointerException}.
+     * <p>After this holder is closed, this continues to return the last published state. This
+     * hot-path read deliberately does not check whether the holder is closed.
      *
      * @return the shared state instance; never {@code null}; treat it as read-only
      */
@@ -103,7 +106,36 @@ public interface ConfigHolder<T> extends AutoCloseable {
     T copy();
 
     /**
+     * Returns an isolated copy of the full desired state while restart settings are pending.
+     * CLIENT local edits wait for game startup; WORLD edits wait for the next world load.
+     * Use {@link #save()} or {@link #updateAndSave(Consumer)} to persist local selections;
+     * {@link #update(Consumer)} alone changes only memory.
+     * Synced SERVER restart selections are saved automatically and survive disconnect.
+     * WORLD remote selections belong only to that world session and are cleared on disconnect;
+     * its initial sync on the next join applies the current world settings.
+     *
+     * @return the desired snapshot, or empty when no restart fields differ from active values
+     */
+    Optional<T> pending();
+
+    /**
+     * Returns this config's declared ownership type.
+     */
+    ConfigType type();
+
+    /**
+     * Returns whether local ownership or an applied remote snapshot currently activates this config.
+     */
+    boolean isActive();
+
+    /**
+     * Returns the active local config file, or empty when this config has no active local path.
+     */
+    Optional<Path> path();
+
+    /**
      * Re-reads persisted state and publishes it when accepted.
+     * Refused while locally inactive, remotely controlled, or read-only.
      *
      * <p>{@link ConfigBuilder#create()} already performed the initial load, so this is for
      * picking up a file edited after startup. A failed read is handled by the read policy:
@@ -121,6 +153,10 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * <p>Never writes to disk — use {@link #updateAndSave(Consumer)} for that. Under a fallback
      * update policy a rejected candidate is logged and discarded, the previous state stays
      * published, and the failed rules come back on the result.
+     *
+     * <p>Restart-only edits for every config type are accepted into {@link #pending()} while other
+     * changes become active. Later updates start from the desired snapshot so they retain pending
+     * selections. Pending SERVER settings take effect after a game restart.
      *
      * <pre>{@code
      * holder.update(config -> config.showHints = false);
@@ -143,7 +179,7 @@ public interface ConfigHolder<T> extends AutoCloseable {
      * empty violation list.
      *
      * <pre>{@code
-     * holder.updateAndSave(config -> config.hudScale = 3);   // memory and config/mymod.json5
+     * holder.updateAndSave(config -> config.hudScale = 3); // memory and config/mymod/mymod.json5
      * }</pre>
      *
      * @param mutator edits a private candidate copy; must not be {@code null}
@@ -163,54 +199,53 @@ public interface ConfigHolder<T> extends AutoCloseable {
     void save();
 
     /**
-     * Registers an update listener on the selected logical side's main thread.
-     * {@link ConfigSide#BOTH} registers one listener for each side.
+     * Registers a synchronous update event on the initiating caller.
      *
-     * <p>The listener runs after an accepted local update or server sync has been published.
-     * Rejected and structurally unchanged transitions do not notify it.
+     * <p>The event runs after every accepted local update, including one that leaves values
+     * unchanged. Server sync notifies it only when the effective published values change.
+     * Rejected operations do not notify it.
      *
-     * @param side     logical side whose main thread receives the callback
-     * @param listener the callback, or {@code null} to register nothing
-     * @return an idempotent subscription that removes the listener when closed
+     * @param listener the event listener, or {@code null} to register nothing
+     * @return an idempotent subscription that removes only this listener when closed;
+     *         a no-op subscription if the registration is closed
      */
-    ConfigSubscription onUpdate(ConfigSide side, Consumer<T> listener);
+    ConfigSubscription onUpdate(Consumer<T> listener);
 
     /**
-     * Registers a load listener on the selected logical side's main thread.
-     * {@link ConfigSide#BOTH} registers one listener for each side.
+     * Registers a synchronous load event on the initiating caller.
      *
-     * <p>The listener runs after a successful explicit {@link #load()}, but not after the
-     * build-time load or a load that falls back to defaults.
+     * <p>The event runs after a successful explicit {@link #load()} or local WORLD activation,
+     * but not after the build-time load or a load that falls back to defaults.
      *
-     * @param side     logical side whose main thread receives the callback
-     * @param listener the callback, or {@code null} to register nothing
-     * @return an idempotent subscription that removes the listener when closed
+     * @param listener the event listener, or {@code null} to register nothing
+     * @return an idempotent subscription that removes only this listener when closed;
+     *         a no-op subscription if the registration is closed
      */
-    ConfigSubscription onLoad(ConfigSide side, Consumer<T> listener);
+    ConfigSubscription onLoad(Consumer<T> listener);
 
     /**
-     * Registers a save listener on the selected logical side's main thread.
-     * {@link ConfigSide#BOTH} registers one listener for each side.
+     * Registers a synchronous save event on the initiating caller.
      *
-     * <p>The listener runs after {@link #save()} or {@link #updateAndSave(Consumer)} reaches
+     * <p>The event runs after {@link #save()} or {@link #updateAndSave(Consumer)} reaches
      * storage. A write failure handled by a fallback policy does not notify it.
      *
-     * @param side     logical side whose main thread receives the callback
-     * @param listener the callback, or {@code null} to register nothing
-     * @return an idempotent subscription that removes the listener when closed
+     * @param listener the event listener, or {@code null} to register nothing
+     * @return an idempotent subscription that removes only this listener when closed;
+     *         a no-op subscription if the registration is closed
      */
-    ConfigSubscription onSave(ConfigSide side, Consumer<T> listener);
+    ConfigSubscription onSave(Consumer<T> listener);
 
     /**
-     * Releases this holder and removes every lifecycle listener registered through it.
+     * Closes the registration's canonical holder for every alias and removes every event.
      *
-     * <p>The shared registration and file ownership are released after the last holder
-     * closes; persisted files are not deleted. Metadata, copying, and lifecycle operations are
-     * rejected after closing, and later listener-registration attempts return a no-op subscription.
+     * <p>Closing through any reference is idempotent across all aliases. The registration and file
+     * ownership are released once; persisted files are not deleted. Metadata, copying, and lifecycle operations are
+     * rejected after closing, and later event-registration attempts return a no-op subscription.
      * {@link #data()} has no closed guard and must not be used after closing.
      *
-     * <p>When a hook closes its own holder during an operation, cleanup happens after that
-     * operation finishes. References previously returned to callers remain the callers' responsibility.
+     * <p>When closing during a state write, closed state and event removal take effect immediately,
+     * but accepted work finishes before resources are released. If both fail, the operation's failure is thrown with the cleanup failure
+     * suppressed. References previously returned to callers remain the callers' responsibility.
      */
     @Override
     void close();

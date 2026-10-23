@@ -1,13 +1,12 @@
 package com.gmalvestiti.minecraft.liteconfig.api;
 
-import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventThreads;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,23 +14,18 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(ConfigRegistryIsolation.class)
 class ConfigBuilderTest {
-
-    @BeforeEach
-    void configureLogicalThreads() {
-        ConfigEventThreads.setClientMainThread(Runnable::run);
-        ConfigEventThreads.setServerMainThread(Runnable::run);
-    }
 
     @Test
     void testResolvesDefaultSettings(@TempDir Path tempDir) {
@@ -46,38 +40,150 @@ class ConfigBuilderTest {
     }
 
     @Test
-    void testCreatesMutableAndReadOnlyHolders(@TempDir Path tempDir) {
+    void testDefaultOwnershipUsesAModScopedServerPath(@TempDir Path tempDir) {
+        try (ConfigHolder<TestFixtures.SimpleConfig> holder =
+                 LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("owner").baseDir(tempDir).create()) {
+            assertEquals(ConfigType.SERVER, holder.type());
+            assertTrue(holder.isActive());
+            assertTrue(holder.pending().isEmpty());
+            assertEquals(tempDir.resolve("owner").resolve("simple.json5").toAbsolutePath(),
+                holder.path().orElseThrow());
+            assertTrue(Files.isRegularFile(holder.path().orElseThrow()));
+        }
+    }
+
+    @Test
+    void testModIdScopingCanBeDisabledWithoutChangingTheOwningScope(@TempDir Path tempDir) {
+        try (ConfigHolder<UnscopedConfig> holder =
+                 LiteConfig.holder(UnscopedConfig.class).modId("owner").baseDir(tempDir).create()) {
+            assertEquals(tempDir.resolve("unscoped.json5").toAbsolutePath(), holder.path().orElseThrow());
+            assertTrue(Files.isRegularFile(holder.path().orElseThrow()));
+            assertFalse(Files.exists(tempDir.resolve("owner")));
+        }
+    }
+
+    @Test
+    void testWorldHolderBuildsDefaultsWithoutAWorldOrInstallationFile(@TempDir Path tempDir)
+        throws IOException {
+        List<Integer> events = new ArrayList<>();
+        try (ConfigHolder<WorldConfig> holder =
+                 LiteConfig.holder(WorldConfig.class).modId("owner").baseDir(tempDir)
+                     .onUpdate(state -> events.add(state.value))
+                     .onLoad(state -> events.add(state.value))
+                     .onSave(state -> events.add(state.value)).create()) {
+            assertEquals(ConfigType.WORLD, holder.type());
+            assertFalse(holder.isActive());
+            assertEquals(7, holder.data().value);
+            assertTrue(holder.path().isEmpty());
+            assertTrue(holder.pending().isEmpty());
+            assertFalse(holder.update(state -> state.value = 9).accepted());
+            holder.load();
+            holder.save();
+            assertEquals(7, holder.data().value);
+            assertTrue(events.isEmpty());
+            try (var files = Files.list(tempDir)) {
+                assertEquals(0, files.count());
+            }
+        }
+    }
+
+    @Test
+    void testNullEventsRegisterNothingAndKeepTheBuilder(@TempDir Path tempDir) {
+        ConfigBuilder<TestFixtures.SimpleConfig> builder =
+            LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir);
+        assertSame(builder, builder.onUpdate(null));
+        assertSame(builder, builder.onLoad(null));
+        assertSame(builder, builder.onSave(null));
+        try (ConfigHolder<TestFixtures.SimpleConfig> holder = builder.create()) {
+            assertSame(ConfigSubscription.NONE, holder.onUpdate(null));
+            assertSame(ConfigSubscription.NONE, holder.onLoad(null));
+            assertSame(ConfigSubscription.NONE, holder.onSave(null));
+            assertTrue(holder.updateAndSave(state -> state.value = 2).accepted());
+            holder.load();
+            assertEquals(2, holder.data().value);
+        }
+    }
+
+    @Test
+    void testAnnotationControlsReadOnlyAcrossBuilders(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.SimpleConfig> mutable = LiteConfig.holder(TestFixtures.SimpleConfig.class)
             .modId("mod").baseDir(tempDir.toString()).create();
         assertTrue(mutable.update(config -> config.value = 5).accepted());
 
-        ConfigHolder<TestFixtures.SimpleConfig> readOnly = LiteConfig.holder(TestFixtures.SimpleConfig.class)
-            .modId("mod").baseDir(tempDir.toString()).readOnly().create();
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> readOnly =
+            LiteConfig.holder(TestFixtures.ReadOnlyConfigWithExtension.class)
+                .modId("mod").baseDir(tempDir).create();
         assertFalse(readOnly.update(config -> config.value = 6).accepted(),
-            "readOnly() must configure a holder that refuses to change values");
+            "the annotation must refuse changes");
+        ConfigHolder<TestFixtures.ReadOnlyConfigWithExtension> second =
+            LiteConfig.holder(TestFixtures.ReadOnlyConfigWithExtension.class)
+                .modId("mod").baseDir(tempDir).create();
+        assertSame(readOnly.data(), second.data());
+        assertSame(readOnly, second);
+        assertFalse(second.update(config -> config.value = 7).accepted(),
+            "a second builder must not bypass the registration's read-only rule");
+        assertFalse(second.updateAndSave(config -> config.value = 8).accepted());
+        assertEquals(1, readOnly.data().value);
     }
 
     @Test
     void testReadOnlyHolderThrowsUnderAStrictUpdatePolicy(@TempDir Path tempDir) {
-        ConfigHolder<TestFixtures.StrictUpdateConfigWithExtension> readOnly =
-            LiteConfig.holder(TestFixtures.StrictUpdateConfigWithExtension.class)
+        ConfigHolder<TestFixtures.StrictReadOnlyConfigWithExtension> readOnly =
+            LiteConfig.holder(TestFixtures.StrictReadOnlyConfigWithExtension.class)
             .modId("mod").baseDir(tempDir.toString())
-            .readOnly()
             .create();
 
         assertThrows(LiteConfigException.class, () -> readOnly.update(config -> config.value = 5));
     }
 
     @Test
-    void testHoldersOfOneConfigShareTheSameState(@TempDir Path tempDir) {
+    void testDistinctBuildersReturnTheSameHolderForOneRegistration(@TempDir Path tempDir) {
         ConfigHolder<TestFixtures.SimpleConfig> first = LiteConfig.holder(TestFixtures.SimpleConfig.class)
             .modId("mod").baseDir(tempDir.toString()).create();
         ConfigHolder<TestFixtures.SimpleConfig> second = LiteConfig.holder(TestFixtures.SimpleConfig.class)
             .modId("mod").baseDir(tempDir.toString()).create();
 
+        assertSame(first, second);
         assertTrue(first.update(config -> config.value = 42).accepted());
 
         assertEquals(42, second.data().value);
+    }
+
+    @Test
+    void testRepeatedCreateReturnsTheSameHolderAndAppendsBuilderEvents(@TempDir Path tempDir) {
+        List<String> events = new ArrayList<>();
+        ConfigBuilder<TestFixtures.SimpleConfig> builder =
+            LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir)
+                .onUpdate(state -> events.add("first-" + state.value));
+        try (ConfigHolder<TestFixtures.SimpleConfig> first = builder.create()) {
+            assertSame(first, builder.create());
+            ConfigHolder<TestFixtures.SimpleConfig> later =
+                LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir)
+                    .onUpdate(state -> events.add("later-" + state.value)).create();
+            assertSame(first, later);
+
+            later.update(state -> state.value = 2);
+
+            assertEquals(List.of("first-2", "first-2", "later-2"), events);
+        }
+    }
+
+    @Test
+    void testSameBuilderCreatesAFreshHolderAfterClose(@TempDir Path tempDir) {
+        ConfigBuilder<TestFixtures.SimpleConfig> builder =
+            LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir);
+        ConfigHolder<TestFixtures.SimpleConfig> original = builder.create();
+        original.update(state -> state.value = 9);
+        original.close();
+
+        try (ConfigHolder<TestFixtures.SimpleConfig> reopened = builder.create()) {
+            assertNotSame(original, reopened);
+            assertEquals(1, reopened.data().value);
+            assertEquals(ConfigError.HOLDER_CLOSED,
+                assertThrows(LiteConfigException.class, original::copy).error());
+            original.close();
+            assertTrue(reopened.update(state -> state.value = 7).accepted());
+        }
     }
 
     @Test
@@ -88,10 +194,10 @@ class ConfigBuilderTest {
             LiteConfig.holder(TestFixtures.SimpleConfig.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
-                .onUpdate(ConfigSide.CLIENT, state -> {
+                .onUpdate(state -> {
                     throw new IllegalStateException("a broken listener must not stop the others");
                 })
-                .onUpdate(ConfigSide.CLIENT, state -> seen.add(state.value))
+                .onUpdate(state -> seen.add(state.value))
                 .create();
 
         assertTrue(seen.isEmpty(), "building a holder is not a change");
@@ -110,7 +216,7 @@ class ConfigBuilderTest {
             LiteConfig.holder(TestFixtures.SimpleConfig.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
-                .onLoad(ConfigSide.CLIENT, state -> seen.add(state.value))
+                .onLoad(state -> seen.add(state.value))
                 .create();
 
         assertTrue(seen.isEmpty(), "build-time load must not fire onLoad");
@@ -129,7 +235,7 @@ class ConfigBuilderTest {
             LiteConfig.holder(TestFixtures.SimpleConfig.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
-                .onSave(ConfigSide.CLIENT, state -> seen.add(state.value))
+                .onSave(state -> seen.add(state.value))
                 .create();
 
         holder.update(config -> config.value = 3);
@@ -151,9 +257,9 @@ class ConfigBuilderTest {
                 .baseDir(tempDir.toString())
                 .create();
 
-        holder.onUpdate(ConfigSide.CLIENT, state -> updates.add(state.value));
-        holder.onLoad(ConfigSide.CLIENT, state -> loads.add(state.value));
-        holder.onSave(ConfigSide.CLIENT, state -> saves.add(state.value));
+        holder.onUpdate(state -> updates.add(state.value));
+        holder.onLoad(state -> loads.add(state.value));
+        holder.onSave(state -> saves.add(state.value));
 
         holder.updateAndSave(config -> config.value = 6);
         holder.load();
@@ -172,9 +278,9 @@ class ConfigBuilderTest {
                 .baseDir(tempDir)
                 .create();
         ConfigSubscription explicit = holder.onUpdate(
-            ConfigSide.CLIENT, state -> updates.add(state.value));
+            state -> updates.add(state.value));
         ConfigSubscription second = holder.onUpdate(
-            ConfigSide.CLIENT, state -> updates.add(state.value * 10));
+            state -> updates.add(state.value * 10));
 
         holder.update(state -> state.value = 2);
         explicit.close();
@@ -187,17 +293,18 @@ class ConfigBuilderTest {
     }
 
     @Test
-    void testClosingHolderRemovesAllOwnedListeners(@TempDir Path tempDir) {
+    void testClosingHolderRemovesAllListeners(@TempDir Path tempDir) {
         List<Integer> updates = new ArrayList<>();
         ConfigHolder<TestFixtures.SimpleConfig> holder =
             LiteConfig.holder(TestFixtures.SimpleConfig.class)
                 .modId("mod")
                 .baseDir(tempDir)
-                .onUpdate(ConfigSide.CLIENT, state -> updates.add(state.value))
+                .onUpdate(state -> updates.add(state.value))
                 .create();
 
+        TestFixtures.SimpleConfig published = holder.data();
         holder.close();
-        assertThrows(NullPointerException.class, holder::data);
+        assertSame(published, holder.data());
         assertEquals(ConfigError.HOLDER_CLOSED,
             assertThrows(LiteConfigException.class, holder::metadata).error());
 
@@ -210,78 +317,75 @@ class ConfigBuilderTest {
     }
 
     @Test
-    void testDispatchesListenersToBothConfigSides(@TempDir Path tempDir) {
-        ArrayDeque<Runnable> clientThread = new ArrayDeque<>();
-        ArrayDeque<Runnable> serverThread = new ArrayDeque<>();
+    void testEventsRunOnceSynchronouslyOnTheCaller(@TempDir Path tempDir) {
         List<Integer> updates = new ArrayList<>();
-        ConfigEventThreads.setClientMainThread(clientThread::addLast);
-        ConfigEventThreads.setServerMainThread(serverThread::addLast);
-        try {
-            ConfigHolder<TestFixtures.SimpleConfig> holder =
-                LiteConfig.holder(TestFixtures.SimpleConfig.class)
-                    .modId("mod")
-                    .baseDir(tempDir)
-                    .onUpdate(ConfigSide.BOTH, state -> updates.add(state.value))
-                    .create();
-
+        Thread caller = Thread.currentThread();
+        try (ConfigHolder<TestFixtures.SimpleConfig> holder =
+                 LiteConfig.holder(TestFixtures.SimpleConfig.class)
+                     .modId("mod").baseDir(tempDir)
+                     .onUpdate(state -> {
+                         assertEquals(caller, Thread.currentThread());
+                         updates.add(state.value);
+                     }).create()) {
             holder.update(state -> state.value = 2);
-
-            assertTrue(updates.isEmpty(), "listeners must wait for their logical game side");
-            clientThread.removeFirst().run();
-            serverThread.removeFirst().run();
-            assertEquals(List.of(2, 2), updates);
-        } finally {
-            ConfigEventThreads.setClientMainThread(Runnable::run);
-            ConfigEventThreads.setServerMainThread(Runnable::run);
+            assertEquals(List.of(2), updates);
         }
     }
 
     @Test
-    void testQueuedGameListenersRetainEachPublishedSnapshotAfterOperationsReturn(@TempDir Path tempDir) {
-        ArrayDeque<Runnable> gameThread = new ArrayDeque<>();
-        List<Integer> updates = new ArrayList<>();
-        ConfigEventThreads.setClientMainThread(gameThread::addLast);
-        try {
-            ConfigHolder<TestFixtures.SimpleConfig> holder =
-                LiteConfig.holder(TestFixtures.SimpleConfig.class)
-                    .modId("mod").baseDir(tempDir)
-                    .onUpdate(ConfigSide.CLIENT, state -> updates.add(state.value))
-                    .create();
+    void testEventsReceiveIsolatedPublishedSnapshots(@TempDir Path tempDir) {
+        List<TestFixtures.SimpleConfig> updates = new ArrayList<>();
+        try (ConfigHolder<TestFixtures.SimpleConfig> holder =
+                 LiteConfig.holder(TestFixtures.SimpleConfig.class)
+                     .modId("mod").baseDir(tempDir)
+                     .onUpdate(updates::add).create()) {
 
             holder.update(state -> state.value = 2);
             holder.update(state -> state.value = 3);
 
             assertEquals(3, holder.data().value);
-            assertTrue(updates.isEmpty());
-            assertEquals(2, gameThread.size());
-            gameThread.removeFirst().run();
-            gameThread.removeFirst().run();
-            assertEquals(List.of(2, 3), updates);
-        } finally {
-            ConfigEventThreads.setClientMainThread(Runnable::run);
+            assertEquals(List.of(2, 3), updates.stream().map(state -> state.value).toList());
+            updates.getFirst().value = 99;
+            assertEquals(3, holder.copy().value, "an old published view cannot mutate canonical state");
         }
     }
 
     @Test
-    void testClosingHolderCancelsQueuedListeners(@TempDir Path tempDir) {
-        ArrayDeque<Runnable> gameThread = new ArrayDeque<>();
-        List<Integer> updates = new ArrayList<>();
-        ConfigEventThreads.setClientMainThread(gameThread::addLast);
-        try {
-            ConfigHolder<TestFixtures.SimpleConfig> holder =
-                LiteConfig.holder(TestFixtures.SimpleConfig.class)
-                    .modId("mod")
-                    .baseDir(tempDir)
-                    .onUpdate(ConfigSide.CLIENT, state -> updates.add(state.value))
-                    .create();
+    void testSynchronousEventsCanStartNestedOperationsAfterPublication(@TempDir Path tempDir) {
+        try (ConfigHolder<TestFixtures.SimpleConfig> holder =
+                 LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir).create()) {
+            List<Integer> events = new ArrayList<>();
+            holder.onUpdate(state -> {
+                assertSame(state, holder.data());
+                events.add(state.value);
+                if (state.value == 4) {
+                    assertTrue(holder.update(next -> next.value = 99).accepted());
+                }
+            });
+            assertTrue(holder.update(state -> state.value = 4).accepted());
+            assertEquals(99, holder.data().value);
+            assertEquals(List.of(4, 99), events);
+        }
+    }
 
+    @Test
+    void testClosingHolderRemovesEventsFromASharedRegistration(@TempDir Path tempDir) {
+        List<Integer> updates = new ArrayList<>();
+        ConfigHolder<TestFixtures.SimpleConfig> holder =
+            LiteConfig.holder(TestFixtures.SimpleConfig.class)
+                .modId("mod").baseDir(tempDir)
+                .onUpdate(state -> updates.add(state.value)).create();
+        try (ConfigHolder<TestFixtures.SimpleConfig> other =
+                 LiteConfig.holder(TestFixtures.SimpleConfig.class).modId("mod").baseDir(tempDir).create()) {
             holder.update(state -> state.value = 2);
             holder.close();
-            gameThread.removeFirst().run();
-
-            assertTrue(updates.isEmpty());
+            assertEquals(ConfigError.HOLDER_CLOSED,
+                assertThrows(LiteConfigException.class,
+                    () -> other.update(state -> state.value = 3)).error());
+            assertSame(ConfigSubscription.NONE, other.onUpdate(state -> updates.add(state.value)));
+            assertEquals(List.of(2), updates);
         } finally {
-            ConfigEventThreads.setClientMainThread(Runnable::run);
+            holder.close();
         }
     }
 
@@ -293,23 +397,24 @@ class ConfigBuilderTest {
             LiteConfig.holder(TestFixtures.SimpleConfig.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
-                .onLoad(ConfigSide.CLIENT, state -> seen.add(state.value))
+                .onLoad(state -> seen.add(state.value))
                 .create();
 
-        Files.writeString(tempDir.resolve("simple.json5"), "{ not a config");
+        Files.writeString(tempDir.resolve("mod").resolve("simple.json5"), "{ not a config");
         holder.load();
 
         assertTrue(seen.isEmpty(), "a swallowed failure is not a change worth announcing");
     }
 
     @Test
-    void testDoesNotNotifyListenersWhenAnUpdateIsRejected(@TempDir Path tempDir) {        List<Integer> seen = new ArrayList<>();
+    void testDoesNotNotifyListenersWhenAnUpdateIsRejected(@TempDir Path tempDir) {
+        List<Integer> seen = new ArrayList<>();
 
         ConfigHolder<TestFixtures.ConfigWithExtension> holder =
             LiteConfig.holder(TestFixtures.ConfigWithExtension.class)
                 .modId("mod")
                 .baseDir(tempDir.toString())
-                .onUpdate(ConfigSide.CLIENT, state -> seen.add(state.value))
+                .onUpdate(state -> seen.add(state.value))
                 .create();
 
         assertFalse(holder.update(config -> config.value = -1).accepted());
@@ -318,7 +423,8 @@ class ConfigBuilderTest {
 
     @Test
     void testRunsTheConfigsOwnMigrationsWhenTheHolderLoads(@TempDir Path tempDir) throws IOException {
-        Files.writeString(tempDir.resolve("versioned.json5"), "{\"hudScale\":7}");
+        Files.createDirectories(tempDir.resolve("mod"));
+        Files.writeString(tempDir.resolve("mod").resolve("versioned.json5"), "{\"hudScale\":7}");
 
         ConfigHolder<TestFixtures.VersionedConfig> holder =
             LiteConfig.holder(TestFixtures.VersionedConfig.class)
@@ -359,5 +465,15 @@ class ConfigBuilderTest {
             LiteConfigException.class,
             () -> LiteConfig.holder(TestFixtures.SimpleConfig.class).settings()
         );
+    }
+
+    @Config(name = "unscoped", modIdDirectory = false)
+    public static class UnscopedConfig {
+        public int value = 1;
+    }
+
+    @Config(name = "world", type = ConfigType.WORLD)
+    public static class WorldConfig {
+        public int value = 7;
     }
 }

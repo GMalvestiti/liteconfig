@@ -1,10 +1,11 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigConstraints;
 import com.gmalvestiti.minecraft.liteconfig.reflection.PersistedFields;
-import com.gmalvestiti.minecraft.liteconfig.storage.ConfigBinder;
+import com.gmalvestiti.minecraft.liteconfig.storage.ConfigSerialization;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -37,13 +38,13 @@ public final class DeclaredConfig {
 
         this.comment = config == null ? List.of() : lines(config.comment());
         this.version = config == null ? 0 : config.version();
-        this.sync = config != null && config.sync();
+        this.sync = config != null && config.sync() == SyncMode.ENABLED;
 
         Map<String, Property> described = new LinkedHashMap<>();
         List<KeyProblem> foundKeyProblems = new ArrayList<>();
 
         for (Field field : PersistedFields.of(type)) {
-            String key = ConfigBinder.propertyNameOf(field);
+            String key = ConfigSerialization.propertyNameOf(field);
             Property property = propertyOf(key, field);
 
             if (key.contains(".")) {
@@ -95,9 +96,9 @@ public final class DeclaredConfig {
         Entry entry = field.getAnnotation(Entry.class);
         List<String> problems = new ArrayList<>();
 
-        DeclaredCallback.Resolution callback = entry == null || entry.callback().isBlank()
-            ? new DeclaredCallback.Resolution(null, null)
-            : DeclaredCallback.resolve(field, entry.callback());
+        DeclaredListener.Resolution listener = entry == null || entry.listener().isBlank()
+            ? new DeclaredListener.Resolution(null, null)
+            : DeclaredListener.resolve(field, entry.listener());
 
         return new Property(
             key,
@@ -110,9 +111,9 @@ public final class DeclaredConfig {
                 ? Optional.empty()
                 : Optional.of(entry.translationKey()),
             entry != null && entry.restart(),
-            entry != null && entry.sync(),
-            Optional.ofNullable(callback.method()),
-            Optional.ofNullable(callback.problem()),
+            entry == null ? SyncMode.INHERIT : entry.sync(),
+            Optional.ofNullable(listener.method()),
+            Optional.ofNullable(listener.problem()),
             DeclaredConstraints.of(field, problems),
             List.copyOf(problems)
         );
@@ -137,8 +138,7 @@ public final class DeclaredConfig {
     /**
      * One persisted field, as its annotations describe it.
      *
-     * @param sync whether {@link Entry#sync()} asks for this field on its own; a field of a
-     *             config that already syncs travels either way
+     * @param sync the field's declared selection, inherited when no {@link Entry} is present
      * @param problems annotation mistakes found while reading the field, empty when it is sound
      */
     public record Property(
@@ -150,9 +150,9 @@ public final class DeclaredConfig {
         List<String> comment,
         Optional<String> translationKey,
         boolean restart,
-        boolean sync,
-        Optional<Method> callback,
-        Optional<String> callbackProblem,
+        SyncMode sync,
+        Optional<Method> listener,
+        Optional<String> listenerProblem,
         ConfigConstraints constraints,
         List<String> problems
     ) {

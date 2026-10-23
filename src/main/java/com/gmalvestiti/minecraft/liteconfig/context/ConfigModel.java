@@ -1,10 +1,13 @@
 package com.gmalvestiti.minecraft.liteconfig.context;
 
+import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
+import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigExtensionLookup;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
-import com.gmalvestiti.minecraft.liteconfig.reflection.callback.ConfigFieldCallbacks;
+import com.gmalvestiti.minecraft.liteconfig.reflection.listener.ConfigFieldListeners;
 import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigMetadataFactory;
 
@@ -25,16 +28,13 @@ public record ConfigModel<T>(
     ConfigFieldPlan fields,
     ConfigExtensionLookup extensions,
     ConfigMetadata metadata,
-    ConfigFieldCallbacks<T> callbacks
+    ConfigFieldListeners<T> listeners
 ) {
 
-    private static final ClassValue<Structure> STRUCTURES = new ClassValue<>() {
+    private static final ClassValue<ConfigExtensionLookup> EXTENSIONS = new ClassValue<>() {
         @Override
-        protected Structure computeValue(Class<?> type) {
-            return new Structure(
-                ConfigFieldPlan.of(type),
-                ConfigExtensionLookup.resolve(type)
-            );
+        protected ConfigExtensionLookup computeValue(Class<?> type) {
+            return ConfigExtensionLookup.resolve(type);
         }
     };
 
@@ -45,25 +45,30 @@ public record ConfigModel<T>(
         Objects.requireNonNull(fields, "fields");
         Objects.requireNonNull(extensions, "extensions");
         Objects.requireNonNull(metadata, "metadata");
-        Objects.requireNonNull(callbacks, "callbacks");
+        Objects.requireNonNull(listeners, "listeners");
     }
 
     public static <T> ConfigModel<T> of(Class<T> type, ConfigScope scope) {
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(scope, "scope");
 
-        Structure structure = STRUCTURES.get(type);
+        Config config = type.getAnnotation(Config.class);
+        if (config != null && config.sync() == SyncMode.INHERIT) {
+            throw scope.exception(ConfigError.INVALID_CONFIG_SYNC, type.getName());
+        }
+
+        ConfigFieldPlan fields = ConfigFieldPlan.of(type);
+        ConfigExtensionLookup extensions = EXTENSIONS.get(type);
         ConfigFieldAccess fieldAccess = new ConfigFieldAccess(scope);
-        ConfigFieldPlan fields = structure.fields();
         ConfigMetadata metadata = ConfigMetadataFactory.create(type, scope, fields);
         return new ConfigModel<>(
             type,
             scope,
             fieldAccess,
             fields,
-            structure.extensions(),
+            extensions,
             metadata,
-            ConfigFieldCallbacks.resolve(type, fields, scope, fieldAccess)
+            ConfigFieldListeners.resolve(type, fields, scope, fieldAccess)
         );
     }
 
@@ -75,8 +80,4 @@ public record ConfigModel<T>(
         return scope.modId() + ":" + typeName();
     }
 
-    private record Structure(
-        ConfigFieldPlan fields,
-        ConfigExtensionLookup extensions
-    ) {}
 }
