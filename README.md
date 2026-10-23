@@ -36,13 +36,14 @@ Version numbers include both the Lite Config version and the Minecraft target:
 
 | Minecraft | Lite Config |
 |---|---|
-| `1.21`-`1.21.10` | `1.2.0-1.21` |
-| `1.21.11` | `1.2.0-1.21.11` |
-| `26.1`-`latest` | `1.2.0-26.1` |
+| `1.21`-`1.21.10` | `1.3.0-1.21` |
+| `1.21.11` | `1.3.0-1.21.11` |
+| `26.1`-`latest` | `1.3.0-26.1` |
 
 The examples below use the `1.21` build.
 
-## Fabric
+<details>
+<summary><b>Fabric</b></summary>
 
 ```groovy
 repositories {
@@ -50,7 +51,7 @@ repositories {
 }
 
 dependencies {
-    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.2.0-1.21'
+    modImplementation 'com.gmalvestiti.minecraft:liteconfig-fabric:1.3.0-1.21'
 }
 ```
 
@@ -59,12 +60,14 @@ Declare the dependency in `fabric.mod.json` so Fabric refuses to load the mod wi
 ```json
 {
   "depends": {
-    "liteconfig": ">=1.2.0-1.21"
+    "liteconfig": ">=1.3.0-1.21"
   }
 }
 ```
+</details>
 
-## NeoForge
+<details>
+<summary><b>NeoForge</b></summary>
 
 ```groovy
 repositories {
@@ -72,7 +75,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.2.0-1.21'
+    implementation 'com.gmalvestiti.minecraft:liteconfig-neoforge:1.3.0-1.21'
 }
 ```
 
@@ -82,10 +85,11 @@ Declare the dependency in `META-INF/neoforge.mods.toml`:
 [[dependencies.yourmodid]]
 modId = "liteconfig"
 type = "required"
-versionRange = "[1.2.0,)"
+versionRange = "[1.3.0,)"
 ordering = "NONE"
 side = "BOTH"
 ```
+</details>
 
 ## Quickstart
 
