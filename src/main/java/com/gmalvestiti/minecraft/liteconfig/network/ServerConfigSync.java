@@ -41,7 +41,7 @@ public final class ServerConfigSync {
         }
     }
 
-    public static List<ConfigSyncHandshakeS2CPacket> beginHandshake() {
+    public static List<ConfigSyncHandshakeS2CPacket> beginHandshake(boolean joining) {
         if (ConfigSyncRegistry.values().isEmpty()) {
             return List.of();
         }
@@ -68,7 +68,7 @@ public final class ServerConfigSync {
         List<ConfigSyncHandshakeS2CPacket> packets = new ArrayList<>(batches.size());
 
         for (Map<String, ConfigBytes> batch : batches) {
-            packets.add(new ConfigSyncHandshakeS2CPacket(batch));
+            packets.add(new ConfigSyncHandshakeS2CPacket(joining, batch));
         }
 
         return packets;
@@ -89,7 +89,7 @@ public final class ServerConfigSync {
             }
         }
 
-        return packets(configs);
+        return packets(configs, request.joining());
     }
 
     static void scheduleBroadcast(SyncedConfig<?> synced) {
@@ -111,7 +111,7 @@ public final class ServerConfigSync {
 
             try {
                 SyncedConfig.Snapshot snapshot = current.changedSnapshot();
-                return snapshot == null ? List.of() : packets(Map.of(syncId, snapshot.data()));
+                return snapshot == null ? List.of() : packets(Map.of(syncId, snapshot.data()), false);
             } catch (RuntimeException failure) {
                 LiteConfigCommon.error("Failed to build config sync update for " + syncId, failure);
                 return List.of();
@@ -119,7 +119,7 @@ public final class ServerConfigSync {
         });
     }
 
-    private static List<ConfigSyncS2CPacket> packets(Map<String, ConfigBytes> configs) {
+    private static List<ConfigSyncS2CPacket> packets(Map<String, ConfigBytes> configs, boolean joining) {
         if (configs.isEmpty()) {
             return List.of();
         }
@@ -138,7 +138,7 @@ public final class ServerConfigSync {
 
         for (int index = 0; index < batches.size(); index++) {
             packets.add(new ConfigSyncS2CPacket(
-                transactionId, index == batches.size() - 1, batches.get(index)));
+                transactionId, index == batches.size() - 1, joining, batches.get(index)));
         }
 
         return packets;

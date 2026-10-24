@@ -11,7 +11,10 @@ import net.minecraft.resources.Identifier;
 
 import java.util.Map;
 
-public record ConfigSyncHandshakeS2CPacket(Map<String, ConfigBytes> hashes) implements CustomPacketPayload {
+public record ConfigSyncHandshakeS2CPacket(
+    boolean joining,
+    Map<String, ConfigBytes> hashes
+) implements CustomPacketPayload {
 
     public ConfigSyncHandshakeS2CPacket {
         hashes = ConfigPayloads.immutableHashes(hashes);
@@ -25,13 +28,13 @@ public record ConfigSyncHandshakeS2CPacket(Map<String, ConfigBytes> hashes) impl
         StreamCodec.of(ConfigSyncHandshakeS2CPacket::encode, ConfigSyncHandshakeS2CPacket::decode);
 
     private static void encode(ByteBuf buffer, ConfigSyncHandshakeS2CPacket payload) {
-        ConfigSyncProtocol.encodeVersion(buffer);
+        buffer.writeBoolean(payload.joining);
         ConfigPayloads.encodeEntries(buffer, payload.hashes);
     }
 
     private static ConfigSyncHandshakeS2CPacket decode(ByteBuf buffer) {
-        ConfigSyncProtocol.decodeVersion(buffer);
-        return new ConfigSyncHandshakeS2CPacket(ConfigPayloads.decodeHashes(buffer));
+        ConfigSyncProtocol.requireReadable(buffer, 1, "join flag");
+        return new ConfigSyncHandshakeS2CPacket(buffer.readBoolean(), ConfigPayloads.decodeHashes(buffer));
     }
 
     @Override

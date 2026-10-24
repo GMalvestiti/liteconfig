@@ -86,7 +86,7 @@ class SyncExclusionTest {
         var receiver = SyncedConfig.of(target);
         var transactions = new ConfigSyncTransactions(id -> id.equals(receiver.id()) ? receiver : null);
         var result = transactions.receive(
-            new ConfigSyncS2CPacket(true, Map.of(sender.id(), sender.cachedSnapshot().data())));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(sender.id(), sender.cachedSnapshot().data())));
 
         assertTrue(result.completed());
         assertFalse(result.restartRequired());
@@ -118,7 +118,7 @@ class SyncExclusionTest {
         var target = create(InheritedSync.class, directory.resolve("client"));
         var receiver = SyncedConfig.of(target);
         var result = new ConfigSyncTransactions(id -> id.equals(receiver.id()) ? receiver : null)
-            .receive(new ConfigSyncS2CPacket(true, Map.of(sender.id(), changed.data())));
+            .receive(new ConfigSyncS2CPacket(0, true, true, Map.of(sender.id(), changed.data())));
 
         assertTrue(result.completed());
         assertEquals(12, target.state().published().shared);
@@ -141,7 +141,7 @@ class SyncExclusionTest {
         var transactions = new ConfigSyncTransactions(id -> id.equals(receiver.id()) ? receiver : null);
 
         var result = transactions.receive(
-            new ConfigSyncS2CPacket(true, Map.of(sender.id(), sender.cachedSnapshot().data())));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(sender.id(), sender.cachedSnapshot().data())));
 
         assertTrue(result.completed());
         assertFalse(result.restartRequired());
@@ -153,7 +153,7 @@ class SyncExclusionTest {
         raw.mode = " fast ";
         source.state().replace(raw);
         result = transactions.receive(
-            new ConfigSyncS2CPacket(true, Map.of(sender.id(), sender.cachedSnapshot().data())));
+            new ConfigSyncS2CPacket(0, true, false, Map.of(sender.id(), sender.cachedSnapshot().data())));
 
         assertTrue(result.completed());
         assertTrue(result.restartRequired());

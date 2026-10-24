@@ -77,7 +77,7 @@ class HashFirstSyncTest {
         Path file = directory.resolve("mod").resolve("hash-rules.json5");
         String localFile = Files.readString(file);
         ClientSyncResult first = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), remote)));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(config.model().syncId(), remote)));
         assertNull(first.disconnectReason());
         assertEquals(9, config.state().published().shared);
         ClientConfigSync.resetClientConnection();
@@ -97,7 +97,7 @@ class HashFirstSyncTest {
         RegisteredConfig<Rules> first = create(Rules.class, directory);
         ConfigBytes remote = encode(first, value -> value.shared = 9);
         assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(first.model().syncId(), remote))).disconnectReason());
+            new ConfigSyncS2CPacket(0, true, true, Map.of(first.model().syncId(), remote))).disconnectReason());
         ClientConfigSync.resetClientConnection();
         ConfigRegistry.release(first);
 
@@ -115,7 +115,7 @@ class HashFirstSyncTest {
         RegisteredConfig<Rules> config = create(Rules.class, directory);
         ConfigBytes remote = encode(config, value -> value.shared = 9);
         assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), remote))).disconnectReason());
+            new ConfigSyncS2CPacket(0, true, true, Map.of(config.model().syncId(), remote))).disconnectReason());
         ClientConfigSync.resetClientConnection();
         TestSyncPlatform.setConnectionIdentitySupplier(() -> "different-server");
 
@@ -131,7 +131,7 @@ class HashFirstSyncTest {
         RegisteredConfig<Rules> config = create(Rules.class, directory);
         ConfigBytes first = encode(config, value -> value.shared = 9);
         assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), first))).disconnectReason());
+            new ConfigSyncS2CPacket(0, true, true, Map.of(config.model().syncId(), first))).disconnectReason());
         ClientConfigSync.resetClientConnection();
         ConfigBytes changed = encode(config, value -> value.shared = 10);
 
@@ -165,11 +165,11 @@ class HashFirstSyncTest {
             .registerStreamCodec(Counted.class, Counted.STREAM_CODEC);
         create(CountedRules.class, directory);
         int encodes = Counted.ENCODES.get();
-        List<ConfigSyncHandshakeS2CPacket> first = ServerConfigSync.beginHandshake();
+        List<ConfigSyncHandshakeS2CPacket> first = ServerConfigSync.beginHandshake(true);
         assertFalse(first.isEmpty());
 
         for (int login = 0; login < 20; login++) {
-            assertEquals(first, ServerConfigSync.beginHandshake());
+            assertEquals(first, ServerConfigSync.beginHandshake(true));
         }
 
         assertEquals(encodes, Counted.ENCODES.get(), "Login must not re-encode unchanged server state");
@@ -184,13 +184,13 @@ class HashFirstSyncTest {
         RegisteredConfig<WorldRules> config = create(WorldRules.class, directory);
         ConfigBytes first = encode(config, value -> value.restart = 8);
         String id = config.model().syncId();
-        ClientSyncResult initial = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(true, Map.of(id, first)));
+        ClientSyncResult initial = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(0, true, true, Map.of(id, first)));
         assertNull(initial.disconnectReason());
         assertFalse(initial.restartRequired());
         assertEquals(8, config.state().published().restart);
         ConfigBytes updated = encode(config, value -> value.restart = 9);
         assertTrue(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(id, updated))).restartRequired());
+            new ConfigSyncS2CPacket(0, true, false, Map.of(id, updated))).restartRequired());
         assertEquals(8, config.state().published().restart);
         assertEquals(9, config.state().pending().orElseThrow().restart);
         ClientConfigSync.resetClientConnection();
@@ -206,7 +206,7 @@ class HashFirstSyncTest {
         assertEquals(1, requests.size());
         assertEquals(5, config.state().published().restart);
         assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(id, first))).disconnectReason());
+            new ConfigSyncS2CPacket(0, true, true, Map.of(id, first))).disconnectReason());
         assertEquals(8, config.state().published().restart);
         assertTrue(config.state().pending().isEmpty());
         ClientConfigSync.resetClientConnection();
@@ -222,16 +222,17 @@ class HashFirstSyncTest {
     }
 
     @Test
-    void strictWorldChangesRequestReconnectAndActivateOnTheNextJoin(@TempDir Path directory) {
+    void strictWorldChangesStayPendingAndActivateOnTheNextJoin(@TempDir Path directory) {
         RegisteredConfig<StrictWorldRules> config = create(StrictWorldRules.class, directory);
         String id = config.model().syncId();
         ConfigBytes initial = encode(config, value -> value.restart = 8);
         assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(id, initial))).disconnectReason());
+            new ConfigSyncS2CPacket(0, true, true, Map.of(id, initial))).disconnectReason());
         ConfigBytes changed = encode(config, value -> value.restart = 9);
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(id, changed)));
-        assertEquals(TranslationKey.RESTART_REQUIRED_WORLD, result.disconnectReason());
+            new ConfigSyncS2CPacket(0, true, false, Map.of(id, changed)));
+        assertTrue(result.restartRequired());
+        assertNull(result.disconnectReason());
         assertEquals(8, config.state().published().restart);
         assertEquals(9, config.state().pending().orElseThrow().restart);
         ClientConfigSync.resetClientConnection();
@@ -248,14 +249,11 @@ class HashFirstSyncTest {
     }
 
     @Test
-    void serverRestartDisconnectTakesPriorityOverWorldReconnectInEitherOrder(@TempDir Path directory) {
+    void serverJoinMismatchDisconnectsRegardlessOfConfigOrder(@TempDir Path directory) {
         RegisteredConfig<StrictWorldRules> world = create(StrictWorldRules.class, directory);
         RegisteredConfig<StrictServerRules> server = create(StrictServerRules.class, directory);
         String worldId = world.model().syncId();
         String serverId = server.model().syncId();
-        ConfigBytes initial = encode(world, value -> value.restart = 8);
-        assertNull(ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(worldId, initial))).disconnectReason());
         ConfigBytes changedWorld = encode(world, value -> value.restart = 9);
         ConfigBytes changedServer = encode(server, value -> value.restart = 10);
         for (boolean worldFirst : List.of(true, false)) {
@@ -263,7 +261,10 @@ class HashFirstSyncTest {
             payload.put(worldFirst ? worldId : serverId, worldFirst ? changedWorld : changedServer);
             payload.put(worldFirst ? serverId : worldId, worldFirst ? changedServer : changedWorld);
             assertEquals(TranslationKey.RESTART_REQUIRED_SERVER,
-                ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(true, payload)).disconnectReason());
+                ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(0, true, true, payload)).disconnectReason());
+            assertEquals(9, world.access().data().restart);
+            assertTrue(world.access().pending().isEmpty());
+            ClientConfigSync.resetClientConnection();
         }
     }
 
@@ -288,7 +289,7 @@ class HashFirstSyncTest {
 
     private static void advertise(String id, ConfigBytes payload) {
         ConfigBytes hash = ConfigBytes.of(Hashing.sha256().hashBytes(payload.bytes()).asBytes());
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(Map.of(id, hash)));
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(id, hash)));
     }
 
     @Config(name = "hash-rules", sync = SyncMode.ENABLED)

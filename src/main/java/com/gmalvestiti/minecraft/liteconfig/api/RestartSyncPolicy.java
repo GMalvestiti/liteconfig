@@ -2,31 +2,22 @@ package com.gmalvestiti.minecraft.liteconfig.api;
 
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 
-import java.util.function.Consumer;
-
 /**
- * Chooses what happens when a client receives changed restart-only values from a server.
+ * Chooses what happens when restart-only values differ during join synchronization.
  *
- * <p>This policy only affects server sync. It does not affect local edits made through
- * {@link ConfigHolder#update(Consumer)} or
- * {@link ConfigHolder#updateAndSave(Consumer)}. Those edits stage restart-only
- * changes in {@link ConfigHolder#pending()} for every config type, keeping the current active
- * values unchanged. CLIENT and SERVER changes take effect after a game restart; WORLD changes
- * take effect when that world is loaded again.
+ * <p>After initialization, local edits, explicit reloads, and live server sync keep restart-only
+ * changes in {@link ConfigHolder#pending()} without changing active values. This policy never
+ * disconnects an already-connected player. CLIENT and SERVER changes take effect at game startup;
+ * WORLD changes take effect in the next world session, though initial synced values apply on join.
  *
- * <p>For synced SERVER configs, received restart-only values are saved to the client's config file
- * for the next game startup under either policy. Reconnecting or reloading the holder does not
- * activate them. For WORLD configs, initial synced values apply when joining; later restart-only
- * changes remain pending until another world session.
+ * <p>Synced SERVER restart values are saved to the client's config file under either policy and do
+ * not become active on reconnect or holder reload.
  *
  * @see Config#restartSyncPolicy()
  */
 public enum RestartSyncPolicy {
-    /** Keep playing with the active values and expose the desired settings through {@code pending()}. */
+    /** Allow joining with the active values and expose the desired settings through {@code pending()}. */
     DEFER,
-    /**
-     * Disconnect after the transaction commits. SERVER settings request a game restart;
-     * WORLD settings request a reconnect and apply when joining the world again.
-     */
+    /** Save differing SERVER restart values from join sync, then disconnect with a restart message. */
     DISCONNECT
 }

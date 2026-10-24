@@ -21,7 +21,7 @@ class ConfigSyncTransactionsTest {
     void cachedTransactionsDoNotConsumeOrCompleteRemoteTransactionIds() {
         ConfigBytes bytes = ConfigBytes.of(new byte[0]);
         assertFalse(transactions.receive(packet(0, false, Map.of("remote", bytes))).completed());
-        assertNull(transactions.receiveCached(Map.of("cached", bytes)).disconnectReason());
+        assertNull(transactions.receiveCached(Map.of("cached", bytes), true).disconnectReason());
         assertFailed(transactions.receive(packet(0, true, Map.of("remote", bytes))));
     }
 
@@ -30,7 +30,7 @@ class ConfigSyncTransactionsTest {
         for (int id = 0; id < ConfigSyncProtocol.MAX_PENDING_TRANSACTIONS; id++) {
             assertFalse(transactions.receive(packet(id, false, Map.of())).completed());
         }
-        assertNull(transactions.receiveCached(Map.of()).disconnectReason());
+        assertNull(transactions.receiveCached(Map.of(), true).disconnectReason());
     }
 
     @Test
@@ -41,10 +41,10 @@ class ConfigSyncTransactionsTest {
         for (int index = 0; index < entries; index++) {
             cached.put("cached." + index, bytes);
         }
-        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertNull(transactions.receiveCached(cached, true).disconnectReason());
         assertFalse(transactions.receive(packet(1, false, Map.of("remote", bytes))).completed());
-        assertFailed(transactions.receiveCached(cached));
-        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertFailed(transactions.receiveCached(cached, true));
+        assertNull(transactions.receiveCached(cached, true).disconnectReason());
     }
 
     @Test
@@ -54,10 +54,10 @@ class ConfigSyncTransactionsTest {
         for (int index = 0; index < ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES; index++) {
             cached.put("cached." + index, bytes);
         }
-        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertNull(transactions.receiveCached(cached, true).disconnectReason());
         assertFalse(transactions.receive(packet(1, false, Map.of("remote", bytes))).completed());
-        assertFailed(transactions.receiveCached(cached));
-        assertNull(transactions.receiveCached(cached).disconnectReason());
+        assertFailed(transactions.receiveCached(cached, true));
+        assertNull(transactions.receiveCached(cached, true).disconnectReason());
     }
 
     @Test
@@ -66,7 +66,7 @@ class ConfigSyncTransactionsTest {
             throw new AssertionError("bounds must be checked before prepare");
         });
         assertFailed(rejecting.receiveCached(Map.of("config",
-            ConfigBytes.of(new byte[ConfigSyncProtocol.MAX_CONFIG_BYTES + 1]))));
+            ConfigBytes.of(new byte[ConfigSyncProtocol.MAX_CONFIG_BYTES + 1])), true));
     }
 
     @Test
@@ -162,6 +162,18 @@ class ConfigSyncTransactionsTest {
     }
 
     @Test
+    void inconsistentJoinFlagsRejectAndClearBufferedTransactions() {
+        for (boolean joining : new boolean[] {true, false}) {
+            assertFalse(transactions.receive(new ConfigSyncS2CPacket(
+                1, false, joining, Map.of())).completed());
+            assertFailed(transactions.receive(new ConfigSyncS2CPacket(
+                1, true, !joining, Map.of())));
+            assertNull(transactions.receive(new ConfigSyncS2CPacket(
+                1, true, !joining, Map.of())).disconnectReason());
+        }
+    }
+
+    @Test
     void completedRestartResultDoesNotRequestADisconnect() {
         ClientSyncResult result = ClientSyncResult.completed(true, null);
 
@@ -189,7 +201,7 @@ class ConfigSyncTransactionsTest {
     }
 
     private static ConfigSyncS2CPacket packet(long id, boolean last, Map<String, ConfigBytes> entries) {
-        return new ConfigSyncS2CPacket(id, last, entries);
+        return new ConfigSyncS2CPacket(id, last, true, entries);
     }
 
     private static void assertFailed(ClientSyncResult result) {

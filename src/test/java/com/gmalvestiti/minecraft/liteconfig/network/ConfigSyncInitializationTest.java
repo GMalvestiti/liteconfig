@@ -27,21 +27,21 @@ class ConfigSyncInitializationTest {
         ConfigRegistryIsolation.beforeGameStartup();
         ConfigHolder<TestFixtures.SyncedConfig> early = holder(tempDir.resolve("early"));
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
 
         TestSyncPlatform.reset();
 
-        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
 
         early.close();
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
 
         ConfigHolder<TestFixtures.SyncedConfig> late = holder(tempDir.resolve("late"));
-        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
 
         late.close();
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -55,9 +55,9 @@ class ConfigSyncInitializationTest {
 
         TestSyncPlatform.reset();
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         ConfigHolder<TestFixtures.SyncedConfig> replacement = holder(tempDir);
-        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
         replacement.close();
         assertTrue(ConfigSyncRegistry.values().isEmpty());
     }
@@ -69,15 +69,15 @@ class ConfigSyncInitializationTest {
         ConfigHolder<WorldConfig> world = LiteConfig.holder(WorldConfig.class)
             .modId("mod").baseDir(tempDir).create();
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(world.path().isEmpty());
         assertFalse(world.isActive());
         ConfigRegistry.activateWorld(tempDir.resolve("world"));
         assertTrue(world.isActive());
         assertEquals(java.util.Set.of("mod:" + WorldConfig.class.getName()),
-            ServerConfigSync.beginHandshake().getFirst().hashes().keySet());
+            ServerConfigSync.beginHandshake(true).getFirst().hashes().keySet());
         ConfigRegistry.deactivateWorld();
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         client.close();
         world.close();
     }

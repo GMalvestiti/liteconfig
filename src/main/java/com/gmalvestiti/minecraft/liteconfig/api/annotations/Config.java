@@ -262,11 +262,9 @@ public @interface Config {
     SyncMode sync() default SyncMode.DISABLED;
 
     /**
-     * Chooses whether clients may stay connected while synced restart-only values differ.
+     * Chooses how clients may join when synced SERVER restart-only values differ.
      *
-     * <p>The default keeps the current active values and exposes the desired settings through
-     * {@code ConfigHolder.pending()}. Choose {@link RestartSyncPolicy#DISCONNECT} when those
-     * settings must be active to play:
+     * <p>Choose {@link RestartSyncPolicy#DISCONNECT} when those values must be active before joining:
      *
      * <pre>{@code
      * @Config(name = "rules", sync = SyncMode.ENABLED, restartSyncPolicy = RestartSyncPolicy.DISCONNECT)
@@ -276,7 +274,9 @@ public @interface Config {
      * }
      * }</pre>
      *
-     * @return how to handle a valid remote snapshot whose restart-only settings differ
+     * <p>See {@link RestartSyncPolicy} for the policy behavior.
+     *
+     * @return how to handle join configs whose SERVER restart-only values differ
      */
     RestartSyncPolicy restartSyncPolicy() default RestartSyncPolicy.DEFER;
 

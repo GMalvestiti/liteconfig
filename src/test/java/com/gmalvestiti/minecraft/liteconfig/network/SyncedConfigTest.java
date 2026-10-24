@@ -300,6 +300,8 @@ class SyncedConfigTest {
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
+                0,
+                true,
                 true,
                 Map.of(
                     target.model().syncId(),
@@ -651,6 +653,8 @@ class SyncedConfigTest {
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
+                0,
+                true,
                 true,
                 Map.of(
                     server.model().syncId(),
@@ -688,7 +692,7 @@ class SyncedConfigTest {
     private static ClientSyncResult receive(SyncedConfig<?> receiver, ConfigBytes payload) {
         Map<String, SyncedConfig<?>> synced = Map.of(receiver.id(), receiver);
         return new ConfigSyncTransactions(synced::get).receive(
-            new ConfigSyncS2CPacket(true, Map.of(receiver.id(), payload)));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(receiver.id(), payload)));
     }
 
     private static <T> RegisteredConfig<T> create(Class<T> type, Path tempDir) {

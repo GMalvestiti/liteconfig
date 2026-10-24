@@ -141,8 +141,8 @@ public @interface Entry {
      * <p>Synced SERVER changes are persisted for the client's next game startup and exposed
      * through {@link ConfigHolder#pending()} without changing active values.
      *
-     * <p>Explicit CLIENT/WORLD {@link ConfigHolder#load()} does not activate restart-only changes
-     * within the current scope. SERVER local loading retains its existing behavior.
+     * <p>Explicit {@link ConfigHolder#load()} also leaves restart-only changes pending for every
+     * config type. For join handling of synced SERVER values, see {@link Config#restartSyncPolicy()}.
      *
      * @return whether changes require a game restart or world reload according to ownership
      */

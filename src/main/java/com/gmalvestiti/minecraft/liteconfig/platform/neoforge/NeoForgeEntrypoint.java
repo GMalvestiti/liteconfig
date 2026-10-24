@@ -90,7 +90,7 @@ public class NeoForgeEntrypoint {
             return;
         }
 
-        ServerConfigSync.beginHandshake().forEach(payload -> send(player, payload));
+        ServerConfigSync.beginHandshake(true).forEach(payload -> send(player, payload));
     }
 
     private static void onServerAboutToStart(ServerAboutToStartEvent event) {

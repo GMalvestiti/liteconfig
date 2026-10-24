@@ -104,7 +104,7 @@ public abstract class CommonServerPlatform implements Executor {
                 .filter(player -> canSend(player, ConfigSyncHandshakeS2CPacket.TYPE)).toList();
 
             if (!players.isEmpty()) {
-                List<ConfigSyncHandshakeS2CPacket> packets = ServerConfigSync.beginHandshake();
+                List<ConfigSyncHandshakeS2CPacket> packets = ServerConfigSync.beginHandshake(false);
                 players.forEach(player -> packets.forEach(packet -> send(player, packet)));
             }
         });

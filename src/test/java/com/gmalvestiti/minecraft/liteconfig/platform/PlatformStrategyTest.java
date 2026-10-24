@@ -168,7 +168,7 @@ class PlatformStrategyTest {
             assertTrue(holder.isActive());
             assertNull(CommonServerPlatform.current());
             assertFalse(ServerConfigSync.isCurrentServer(server));
-            assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+            assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
             platform.execute(() -> fail("Work cannot run before server startup"));
             verify(server, never()).execute(any(Runnable.class));
 
@@ -177,7 +177,7 @@ class PlatformStrategyTest {
             assertSame(platform, CommonServerPlatform.current());
             assertSame(server, platform.server);
             assertTrue(ServerConfigSync.isCurrentServer(server));
-            assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+            assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
             CommonServerPlatform.stopped(server);
             assertNull(CommonServerPlatform.current());
             assertFalse(holder.isActive());

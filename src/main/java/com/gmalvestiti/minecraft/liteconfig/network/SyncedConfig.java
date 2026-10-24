@@ -478,8 +478,6 @@ final class SyncedConfig<T> {
         RegisteredConfig<?> config, List<SyncedValue> values, RestartSyncPolicy restartSyncPolicy
     ) {
         StringBuilder shape = new StringBuilder()
-            .append(ConfigSyncProtocol.VERSION)
-            .append('|')
             .append(config.model().typeName())
             .append('|')
             .append(config.pathResolver().type())
@@ -605,8 +603,8 @@ final class SyncedConfig<T> {
             return restartRequired;
         }
 
-        TranslationKey disconnectReason() {
-            if (!restartRequired || owner.restartSyncPolicy != RestartSyncPolicy.DISCONNECT) {
+        TranslationKey disconnectReason(boolean joining) {
+            if (!joining || !restartRequired || owner.restartSyncPolicy != RestartSyncPolicy.DISCONNECT) {
                 return null;
             }
             return owner.config.pathResolver().type() == ConfigType.WORLD

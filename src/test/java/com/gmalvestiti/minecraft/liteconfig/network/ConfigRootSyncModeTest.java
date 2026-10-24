@@ -76,7 +76,7 @@ class ConfigRootSyncModeTest {
             .modId("mod").baseDir(directory).create()) {
             assertEquals(7, holder.data().value);
             assertTrue(ConfigSyncRegistry.values().isEmpty());
-            assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+            assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         }
     }
 

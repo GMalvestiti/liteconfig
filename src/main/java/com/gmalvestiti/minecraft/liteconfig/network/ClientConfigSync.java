@@ -21,7 +21,7 @@ import static com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncProtocol.EN
 
 public final class ClientConfigSync {
 
-    private static final Map<String, ConfigBytes> SERVER_CONFIG_HASHES = new HashMap<>();
+    private static final Map<String, ManifestEntry> SERVER_CONFIG_HASHES = new HashMap<>();
     private static final ConfigSyncTransactions TRANSACTIONS =
         new ConfigSyncTransactions(ConfigSyncRegistry::get);
 
@@ -62,10 +62,10 @@ public final class ClientConfigSync {
                     throw new IllegalArgumentException("Config sync manifest exceeds connection entry limit");
                 }
 
-                SERVER_CONFIG_HASHES.put(entry.getKey(), entry.getValue());
+                SERVER_CONFIG_HASHES.put(entry.getKey(), new ManifestEntry(entry.getValue(), handshake.joining()));
             }
 
-            synchronize(handshake.hashes());
+            synchronize(handshake.hashes(), handshake.joining());
         } catch (RuntimeException failure) {
             rejectHandshake(failure);
         }
@@ -88,18 +88,18 @@ public final class ClientConfigSync {
     }
 
     static void requestIfAdvertised(SyncedConfig<?> synced) {
-        ConfigBytes hash = SERVER_CONFIG_HASHES.get(synced.id());
+        ManifestEntry manifest = SERVER_CONFIG_HASHES.get(synced.id());
 
-        if (hash != null) {
+        if (manifest != null) {
             try {
-                synchronize(Map.of(synced.id(), hash));
+                synchronize(Map.of(synced.id(), manifest.hash()), manifest.joining());
             } catch (RuntimeException failure) {
                 rejectHandshake(failure);
             }
         }
     }
 
-    private static void synchronize(Map<String, ConfigBytes> hashes) {
+    private static void synchronize(Map<String, ConfigBytes> hashes, boolean joining) {
         Map<String, ConfigBytes> matching = new LinkedHashMap<>();
         List<String> requested = new ArrayList<>();
 
@@ -127,7 +127,7 @@ public final class ClientConfigSync {
         }
 
         if (!matching.isEmpty()) {
-            ClientSyncResult result = TRANSACTIONS.receiveCached(matching);
+            ClientSyncResult result = TRANSACTIONS.receiveCached(matching, joining);
 
             if (result.disconnectReason() != null) {
                 disconnect(result.disconnectReason());
@@ -135,7 +135,7 @@ public final class ClientConfigSync {
             }
         }
 
-        request(requested);
+        request(requested, joining);
     }
 
     private static void rejectHandshake(RuntimeException failure) {
@@ -145,13 +145,14 @@ public final class ClientConfigSync {
         disconnect(TranslationKey.SYNC_FAILED);
     }
 
-    private static void request(List<String> configIds) {
+    private static void request(List<String> configIds, boolean joining) {
         for (int start = 0; start < configIds.size(); start += ENTRIES_PER_PACKET) {
             int end = Math.min(configIds.size(), start + ENTRIES_PER_PACKET);
 
             CommonClientPlatform platform = PLATFORM;
             if (platform != null) {
                 platform.request(new ConfigSyncRequestC2SPacket(
+                    joining,
                     new LinkedHashSet<>(configIds.subList(start, end))));
             }
         }
@@ -163,4 +164,6 @@ public final class ClientConfigSync {
             platform.disconnect(reason);
         }
     }
+
+    private record ManifestEntry(ConfigBytes hash, boolean joining) {}
 }

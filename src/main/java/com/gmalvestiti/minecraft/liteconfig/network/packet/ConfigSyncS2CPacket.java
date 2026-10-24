@@ -14,15 +14,12 @@ import java.util.Map;
 public record ConfigSyncS2CPacket(
     long transactionId,
     boolean last,
+    boolean joining,
     Map<String, ConfigBytes> configs
 ) implements CustomPacketPayload {
 
     public ConfigSyncS2CPacket {
         configs = ConfigPayloads.immutableEntries(configs);
-    }
-
-    public ConfigSyncS2CPacket(boolean last, Map<String, ConfigBytes> configs) {
-        this(0, last, configs);
     }
 
     public static final Identifier ID = Identifier.fromNamespaceAndPath(LiteConfigCommon.MOD_ID, "config_sync");
@@ -33,19 +30,19 @@ public record ConfigSyncS2CPacket(
         StreamCodec.of(ConfigSyncS2CPacket::encode, ConfigSyncS2CPacket::decode);
 
     private static void encode(ByteBuf buffer, ConfigSyncS2CPacket payload) {
-        ConfigSyncProtocol.encodeVersion(buffer);
         buffer.writeLong(payload.transactionId);
         buffer.writeBoolean(payload.last);
+        buffer.writeBoolean(payload.joining);
 
         ConfigPayloads.encodeEntries(buffer, payload.configs);
     }
 
     private static ConfigSyncS2CPacket decode(ByteBuf buffer) {
-        ConfigSyncProtocol.decodeVersion(buffer);
-        ConfigSyncProtocol.requireReadable(buffer, Long.BYTES + 1, "transaction id and completion flag");
+        ConfigSyncProtocol.requireReadable(buffer, Long.BYTES + 2, "transaction id, completion and join flags");
 
         return new ConfigSyncS2CPacket(
             buffer.readLong(),
+            buffer.readBoolean(),
             buffer.readBoolean(),
             ConfigPayloads.decodeEntries(buffer));
     }

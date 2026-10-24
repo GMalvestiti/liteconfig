@@ -23,7 +23,7 @@ final class ConfigSyncTransactions {
         this.synced = synced;
     }
 
-    ClientSyncResult receiveCached(Map<String, ConfigBytes> configs) {
+    ClientSyncResult receiveCached(Map<String, ConfigBytes> configs, boolean joining) {
         try {
             if ((long) pendingEntries + configs.size() > ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES) {
                 throw new IllegalArgumentException("Config sync transaction exceeds pending entry limit");
@@ -49,7 +49,7 @@ final class ConfigSyncTransactions {
                 }
             }
 
-            return apply(cached);
+            return apply(cached, joining);
         } catch (RuntimeException failure) {
             clear();
             LiteConfigCommon.error("Failed to receive cached config sync transaction", failure);
@@ -75,12 +75,16 @@ final class ConfigSyncTransactions {
             }
 
             if (transaction == null && packet.last()) {
-                return apply(packet.configs());
+                return apply(packet.configs(), packet.joining());
             }
 
             if (transaction == null) {
-                transaction = new PendingTransaction();
+                transaction = new PendingTransaction(packet.joining());
                 pending.put(packet.transactionId(), transaction);
+            }
+
+            if (transaction.joining != packet.joining()) {
+                throw new IllegalArgumentException("Inconsistent join flag in config sync transaction");
             }
 
             if (++transaction.packetCount > ConfigSyncProtocol.MAX_TRANSACTION_PACKETS) {
@@ -105,7 +109,7 @@ final class ConfigSyncTransactions {
             pendingBytes -= transaction.bytes;
             pendingEntries -= transaction.configs.size();
 
-            return apply(transaction.configs);
+            return apply(transaction.configs, transaction.joining);
         } catch (RuntimeException failure) {
             clear();
             LiteConfigCommon.error("Failed to receive config sync transaction", failure);
@@ -113,7 +117,7 @@ final class ConfigSyncTransactions {
         }
     }
 
-    private ClientSyncResult apply(Map<String, ConfigBytes> configs) {
+    private ClientSyncResult apply(Map<String, ConfigBytes> configs, boolean joining) {
         List<SyncedConfig.Prepared<?>> prepared = new ArrayList<>(configs.size());
 
         try {
@@ -150,7 +154,7 @@ final class ConfigSyncTransactions {
 
                 committed++;
                 restartRequired |= change.restartRequired();
-                TranslationKey reason = change.disconnectReason();
+                TranslationKey reason = change.disconnectReason(joining);
                 if (reason == TranslationKey.RESTART_REQUIRED_SERVER || disconnectReason == null) {
                     disconnectReason = reason;
                 }
@@ -196,7 +200,12 @@ final class ConfigSyncTransactions {
     private static final class PendingTransaction {
 
         private final Map<String, ConfigBytes> configs = new LinkedHashMap<>();
+        private final boolean joining;
         private int packetCount;
         private int bytes;
+
+        private PendingTransaction(boolean joining) {
+            this.joining = joining;
+        }
     }
 }

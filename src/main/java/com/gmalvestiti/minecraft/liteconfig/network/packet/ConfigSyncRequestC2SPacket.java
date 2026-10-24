@@ -15,7 +15,10 @@ import java.util.Set;
 
 import static com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncProtocol.ENTRIES_PER_PACKET;
 
-public record ConfigSyncRequestC2SPacket(Set<String> configIds) implements CustomPacketPayload {
+public record ConfigSyncRequestC2SPacket(
+    boolean joining,
+    Set<String> configIds
+) implements CustomPacketPayload {
 
     public ConfigSyncRequestC2SPacket {
         configIds = ConfigPayloads.immutableIds(configIds);
@@ -29,14 +32,15 @@ public record ConfigSyncRequestC2SPacket(Set<String> configIds) implements Custo
         StreamCodec.of(ConfigSyncRequestC2SPacket::encode, ConfigSyncRequestC2SPacket::decode);
 
     private static void encode(ByteBuf buffer, ConfigSyncRequestC2SPacket payload) {
-        ConfigSyncProtocol.encodeVersion(buffer);
+        buffer.writeBoolean(payload.joining);
 
         ByteBufCodecs.VAR_INT.encode(buffer, payload.configIds.size());
         payload.configIds.forEach(id -> ByteBufCodecs.STRING_UTF8.encode(buffer, id));
     }
 
     private static ConfigSyncRequestC2SPacket decode(ByteBuf buffer) {
-        ConfigSyncProtocol.decodeVersion(buffer);
+        ConfigSyncProtocol.requireReadable(buffer, 1, "join flag");
+        boolean joining = buffer.readBoolean();
 
         int count = ConfigSyncProtocol.readSize(buffer, ENTRIES_PER_PACKET, "request id count");
 
@@ -55,7 +59,7 @@ public record ConfigSyncRequestC2SPacket(Set<String> configIds) implements Custo
             }
         }
 
-        return new ConfigSyncRequestC2SPacket(ids);
+        return new ConfigSyncRequestC2SPacket(joining, ids);
     }
 
     @Override

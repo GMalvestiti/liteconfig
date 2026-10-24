@@ -97,46 +97,17 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
 
     private void loadState(RegisteredConfig.CallbackQueue callbacks) {
         try {
-            if (type() != ConfigType.SERVER) {
-                ConfigOutcome<LocalChange<T>> read = registration.exceptionHandler().onRead(
-                    registration.model().type(), () -> localLoad(registration.engine().load()));
+            ConfigOutcome<LocalChange<T>> read = registration.exceptionHandler().onRead(
+                registration.model().type(), () -> localLoad(registration.engine().load()));
 
-                LocalChange<T> loaded = read.valueOr(() -> localLoad(registration.declaredDefaults()));
-
-                if (read.completed()) {
-                    publishLocalChange(loaded, ConfigOperation.LOAD, callbacks);
-                    logCompleted(ConfigOperation.LOAD);
-                } else {
-                    state.replaceLocal(loaded.active(), loaded.pending(),
-                        registration.pathResolver().restartPathForConfig(registration.model().type()));
-                }
-
-                return;
-            }
-
-            ConfigOutcome<T> read = registration.exceptionHandler().onRead(registration.model().type(), () -> {
-                T candidate = registration.engine().load();
-                registration.guard().normalize(candidate);
-
-                if (registration.hasPendingRestartFile()) {
-                    registration.guard().carryOverRestart(state.canonical(), candidate);
-                }
-
-                registration.guard().validate(candidate);
-                return candidate;
-            });
-
-            T loaded = read.valueOr(registration::declaredDefaults);
-            if (read.degraded() && registration.hasPendingRestartFile()) {
-                registration.guard().carryOverRestart(state.canonical(), loaded);
-                registration.guard().validate(loaded);
-            }
+            LocalChange<T> loaded = read.valueOr(() -> localLoad(registration.declaredDefaults()));
 
             if (read.completed()) {
-                publishLoaded(loaded, callbacks);
+                publishLocalChange(loaded, ConfigOperation.LOAD, callbacks);
                 logCompleted(ConfigOperation.LOAD);
             } else {
-                state.replace(loaded);
+                state.replaceLocal(loaded.active(), loaded.pending(),
+                    registration.pathResolver().restartPathForConfig(registration.model().type()));
             }
         } catch (LiteConfigException failure) {
             if (!failure.defect()) {
@@ -264,11 +235,6 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
             () -> registration.saveLocal(canonical)).completed()) {
             notifySaved(published, callbacks);
         }
-    }
-
-    private void publishLoaded(T next, RegisteredConfig.CallbackQueue callbacks) {
-        ConfigState.Transition<T> transition = state.replace(next);
-        queueChangeCallbacks(transition, ConfigOperation.LOAD, callbacks);
     }
 
     private void queueChangeCallbacks(

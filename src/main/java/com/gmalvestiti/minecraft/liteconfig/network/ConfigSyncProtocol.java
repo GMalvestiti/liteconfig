@@ -8,7 +8,6 @@ import java.nio.charset.StandardCharsets;
 
 public final class ConfigSyncProtocol {
 
-    public static final int VERSION = 1;
     public static final int ENTRIES_PER_PACKET = 64;
     public static final int HASH_BYTES = 32;
     static final int MAX_ID_BYTES = 512;
@@ -23,18 +22,6 @@ public final class ConfigSyncProtocol {
         (MAX_TRANSACTION_ENTRIES + ENTRIES_PER_PACKET - 1) / ENTRIES_PER_PACKET;
 
     private ConfigSyncProtocol() {}
-
-    public static void encodeVersion(ByteBuf buffer) {
-        ByteBufCodecs.VAR_INT.encode(buffer, VERSION);
-    }
-
-    public static void decodeVersion(ByteBuf buffer) {
-        int version = ByteBufCodecs.VAR_INT.decode(buffer);
-
-        if (version != VERSION) {
-            throw new DecoderException("Unsupported LiteConfig sync protocol " + version + "; expected " + VERSION);
-        }
-    }
 
     public static int readSize(ByteBuf buffer, int maximum, String label) {
         int size = ByteBufCodecs.VAR_INT.decode(buffer);

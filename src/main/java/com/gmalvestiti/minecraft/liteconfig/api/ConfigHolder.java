@@ -107,7 +107,7 @@ public interface ConfigHolder<T> extends AutoCloseable {
 
     /**
      * Returns an isolated copy of the full desired state while restart settings are pending.
-     * CLIENT local edits wait for game startup; WORLD edits wait for the next world load.
+     * Local CLIENT and SERVER edits wait for game startup; WORLD edits wait for the next world load.
      * Use {@link #save()} or {@link #updateAndSave(Consumer)} to persist local selections;
      * {@link #update(Consumer)} alone changes only memory.
      * Synced SERVER restart selections are saved automatically and survive disconnect.
@@ -139,8 +139,11 @@ public interface ConfigHolder<T> extends AutoCloseable {
      *
      * <p>{@link ConfigBuilder#create()} already performed the initial load, so this is for
      * picking up a file edited after startup. A failed read is handled by the read policy:
-     * {@code FALLBACK} moves a malformed or invalid file aside and restores defaults in memory,
-     * leaving the file to be rewritten by the next save; {@code STRICT} throws.
+     * {@code FALLBACK} moves a malformed or invalid file aside and falls back to defaults subject
+     * to the same restart-only rules, leaving the file to be rewritten by the next save;
+     * {@code STRICT} throws.
+     *
+     * <p>Restart-only changes remain pending for every config type.
      *
      * @throws LiteConfigException when the read policy is strict and loading, parsing, or load-time validation fails;
      *     also when a defect error occurs

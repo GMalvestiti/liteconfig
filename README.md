@@ -124,10 +124,10 @@ public final class MyModConfig {
     public boolean showHints = true;
     public int hudScale = 2;
 
-    public static final ConfigHolder<MyModConfig> HOLDER;
+    public static final ConfigHolder<MyModConfig> CONFIG;
     
     static {
-        HOLDER = LiteConfig.holder(MyModConfig.class)
+        CONFIG = LiteConfig.holder(MyModConfig.class)
             .modId("mymod")
             .create();
     }
@@ -340,7 +340,7 @@ synchronization.
 ```java
 public final class MyMod implements ModInitializer {
 
-    public static ConfigHolder<MyModConfig> config = LiteConfig.holder(MyModConfig.class, codecs -> codecs
+    public static ConfigHolder<MyModConfig> CONFIG = LiteConfig.holder(MyModConfig.class, codecs -> codecs
             .registerCodec(IntRange.class, IntRange.CODEC)
             .registerStreamCodec(IntRange.class, IntRange.STREAM_CODEC))
         .modId("mymod")
@@ -351,14 +351,14 @@ public final class MyMod implements ModInitializer {
     @Override
     public void onInitialize() {
         // Fast shared read. Treat the returned object as read-only.
-        int currentScale = config.data().hudScale;
+        int currentScale = CONFIG.data().hudScale;
 
         // Stable deep copy owned by this caller.
-        MyModConfig snapshot = config.copy();
+        MyModConfig snapshot = CONFIG.copy();
         snapshot.display.hiddenHints.add("crafting");
 
         // Validated in-memory update.
-        UpdateResult result = config.update(state -> {
+        UpdateResult result = CONFIG.update(state -> {
             state.hudScale = 3;
             state.display.hiddenHints = new ArrayList<>(
                 snapshot.display.hiddenHints
@@ -370,13 +370,13 @@ public final class MyMod implements ModInitializer {
         }
 
         // Update and save.
-        UpdateResult saved = config.updateAndSave(state ->
+        UpdateResult saved = CONFIG.updateAndSave(state ->
             state.spawnRange = new IntRange(2, 24)
         );
         System.out.println("Saved: " + saved.accepted());
 
         // Structural metadata for screens, commands, generated help, etc.
-        config.metadata().flatten().forEach(property ->
+        CONFIG.metadata().flatten().forEach(property ->
             System.out.println(property.path() + " -> " + property.type().getSimpleName()));
     }
 }

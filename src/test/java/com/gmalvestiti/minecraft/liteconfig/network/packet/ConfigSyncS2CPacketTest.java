@@ -10,6 +10,8 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.server.Bootstrap;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -29,46 +31,62 @@ class ConfigSyncS2CPacketTest {
         Bootstrap.bootStrap();
     }
 
-    @Test
-    void testRoundTripsConfigPayloadThroughVanillaCodec() {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testRoundTripsConfigPayloadThroughVanillaCodec(boolean joining) {
         ConfigSyncS2CPacket original =
             new ConfigSyncS2CPacket(
-                42, true, Map.of("example.rules", ConfigBytes.of(new byte[] {1, 2, 3})));
+                42, true, joining, Map.of("example.rules", ConfigBytes.of(new byte[] {1, 2, 3})));
         var buffer = Unpooled.buffer();
 
         ConfigSyncS2CPacket.STREAM_CODEC.encode(buffer, original);
+        assertEquals(42, buffer.readLong());
+        assertEquals(true, buffer.readBoolean());
+        assertEquals(joining, buffer.readBoolean());
+        buffer.readerIndex(0);
         ConfigSyncS2CPacket decoded = ConfigSyncS2CPacket.STREAM_CODEC.decode(buffer);
 
         assertEquals(original.transactionId(), decoded.transactionId());
         assertEquals(original.last(), decoded.last());
+        assertEquals(joining, decoded.joining());
         assertEquals(original.configs().keySet(), decoded.configs().keySet());
         assertEquals(original.configs().get("example.rules"), decoded.configs().get("example.rules"));
     }
 
-    @Test
-    void testRoundTripsHashHandshakeThroughVanillaCodec() {
-        ConfigSyncHandshakeS2CPacket original = new ConfigSyncHandshakeS2CPacket(Map.of(
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testRoundTripsHashHandshakeThroughVanillaCodec(boolean joining) {
+        ConfigSyncHandshakeS2CPacket original = new ConfigSyncHandshakeS2CPacket(joining, Map.of(
             "example.rules", hash(1),
             "example.client", hash(2)));
         var buffer = Unpooled.buffer();
 
         ConfigSyncHandshakeS2CPacket.STREAM_CODEC.encode(buffer, original);
+        assertEquals(joining, buffer.readBoolean());
+        assertEquals(2, ByteBufCodecs.VAR_INT.decode(buffer));
+        buffer.readerIndex(0);
         ConfigSyncHandshakeS2CPacket decoded = ConfigSyncHandshakeS2CPacket.STREAM_CODEC.decode(buffer);
 
         assertEquals(original.hashes().keySet(), decoded.hashes().keySet());
         assertEquals(original.hashes(), decoded.hashes());
+        assertEquals(joining, decoded.joining());
     }
 
-    @Test
-    void testRoundTripsConfigRequestThroughVanillaCodec() {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testRoundTripsConfigRequestThroughVanillaCodec(boolean joining) {
         ConfigSyncRequestC2SPacket original =
-            new ConfigSyncRequestC2SPacket(Set.of("example.rules", "example.client"));
+            new ConfigSyncRequestC2SPacket(joining, Set.of("example.rules", "example.client"));
         var buffer = Unpooled.buffer();
 
         ConfigSyncRequestC2SPacket.STREAM_CODEC.encode(buffer, original);
+        assertEquals(joining, buffer.readBoolean());
+        assertEquals(2, ByteBufCodecs.VAR_INT.decode(buffer));
+        buffer.readerIndex(0);
         ConfigSyncRequestC2SPacket decoded = ConfigSyncRequestC2SPacket.STREAM_CODEC.decode(buffer);
 
         assertEquals(original.configIds(), decoded.configIds());
+        assertEquals(joining, decoded.joining());
     }
 
     @Test
@@ -76,7 +94,7 @@ class ConfigSyncS2CPacketTest {
         Map<String, ConfigBytes> configs = new LinkedHashMap<>();
         configs.put("example.rules", ConfigBytes.of(new byte[] {1}));
 
-        ConfigSyncS2CPacket packet = new ConfigSyncS2CPacket(true, configs);
+        ConfigSyncS2CPacket packet = new ConfigSyncS2CPacket(0, true, true, configs);
         configs.clear();
 
         assertNotSame(configs, packet.configs());
@@ -98,13 +116,18 @@ class ConfigSyncS2CPacketTest {
     }
 
     @Test
-    void testRejectsAProtocolVersionMismatch() {
+    void testRejectsTruncatedPacketHeaders() {
         var buffer = Unpooled.buffer();
-        ByteBufCodecs.VAR_INT.encode(buffer, ConfigSyncProtocol.VERSION + 1);
-
-        assertThrows(
-            DecoderException.class,
-            () -> ConfigSyncS2CPacket.STREAM_CODEC.decode(buffer));
+        try {
+            assertThrows(DecoderException.class,
+                () -> ConfigSyncHandshakeS2CPacket.STREAM_CODEC.decode(buffer));
+            assertThrows(DecoderException.class,
+                () -> ConfigSyncRequestC2SPacket.STREAM_CODEC.decode(buffer));
+            assertThrows(DecoderException.class,
+                () -> ConfigSyncS2CPacket.STREAM_CODEC.decode(buffer));
+        } finally {
+            buffer.release();
+        }
     }
 
     @Test
@@ -112,13 +135,14 @@ class ConfigSyncS2CPacketTest {
         assertThrows(
             IllegalArgumentException.class,
             () -> new ConfigSyncHandshakeS2CPacket(
+                true,
                 Map.of("example.rules", ConfigBytes.of(new byte[31]))));
     }
 
     @Test
     void testRejectsTooManyRequestIdsBeforeAllocatingThem() {
         var buffer = Unpooled.buffer();
-        ConfigSyncProtocol.encodeVersion(buffer);
+        buffer.writeBoolean(true);
         ByteBufCodecs.VAR_INT.encode(buffer, ENTRIES_PER_PACKET + 1);
 
         assertThrows(

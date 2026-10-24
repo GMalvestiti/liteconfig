@@ -27,7 +27,7 @@ class ConfigWorldSyncLifecycleTest {
         ConfigRegistryIsolation.beforeGameStartup();
         List<Integer> manifestSizes = new ArrayList<>();
         TestSyncPlatform.setManifestScheduler(() -> manifestSizes.add(
-            ServerConfigSync.beginHandshake().stream().mapToInt(packet -> packet.hashes().size()).sum()));
+            ServerConfigSync.beginHandshake(false).stream().mapToInt(packet -> packet.hashes().size()).sum()));
 
         try (ConfigHolder<FirstWorldConfig> first = LiteConfig.holder(FirstWorldConfig.class)
             .modId("mod").baseDir(directory).create();
@@ -44,7 +44,7 @@ class ConfigWorldSyncLifecycleTest {
             TestSyncPlatform.clearServerMainThreadExecutor(TestSyncPlatform.serverExecutor());
             ConfigRegistry.deactivateWorld();
             assertEquals(List.of(2), manifestSizes);
-            assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+            assertTrue(ServerConfigSync.beginHandshake(false).isEmpty());
         }
     }
 

@@ -49,7 +49,7 @@ public class FabricEntrypoint implements ModInitializer {
                 return;
             }
 
-            for (ConfigSyncHandshakeS2CPacket payload : ServerConfigSync.beginHandshake()) {
+            for (ConfigSyncHandshakeS2CPacket payload : ServerConfigSync.beginHandshake(true)) {
                 ServerPlayNetworking.send(handler.getPlayer(), payload);
             }
         });

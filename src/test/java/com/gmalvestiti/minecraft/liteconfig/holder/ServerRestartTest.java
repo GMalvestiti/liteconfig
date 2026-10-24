@@ -3,6 +3,7 @@ package com.gmalvestiti.minecraft.liteconfig.holder;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigHolder;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.api.LiteConfig;
+import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
@@ -63,11 +64,35 @@ class ServerRestartTest {
         }
     }
 
+    @Test
+    void explicitReloadStagesFileEditsWithoutHotActivation(@TempDir Path directory) throws Exception {
+        try (ConfigHolder<ServerPreferences> holder = holder(directory)) {
+            Path file = holder.path().orElseThrow();
+            Files.writeString(file, "{ restart: 9, immediate: 4 }");
+
+            holder.load();
+
+            assertEquals(5, holder.data().restart);
+            assertEquals(4, holder.data().immediate);
+            assertEquals(9, holder.pending().orElseThrow().restart);
+            holder.save();
+            holder.load();
+            assertEquals(5, holder.data().restart);
+            assertEquals(9, holder.pending().orElseThrow().restart);
+        }
+
+        try (ConfigHolder<ServerPreferences> restarted = holder(directory)) {
+            assertEquals(9, restarted.data().restart);
+            assertTrue(restarted.pending().isEmpty());
+        }
+    }
+
     private static ConfigHolder<ServerPreferences> holder(Path directory) {
         return LiteConfig.holder(ServerPreferences.class).modId("mod").baseDir(directory).create();
     }
 
-    @Config(name = "server-preferences", type = ConfigType.SERVER)
+    @Config(name = "server-preferences", type = ConfigType.SERVER,
+        restartSyncPolicy = RestartSyncPolicy.DISCONNECT)
     static class ServerPreferences {
         @Entry(restart = true)
         int restart = 5;

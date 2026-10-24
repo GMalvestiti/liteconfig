@@ -258,7 +258,7 @@ class RestartSyncStoreTest {
             .modId("mod").baseDir(clients).create()) {
             ConfigBytes bytes = payload(server, 8, "remote");
             ClientSyncResult result = ClientConfigSync.receivePayload(
-                new ConfigSyncS2CPacket(true, Map.of(server.model().syncId(), bytes)));
+                new ConfigSyncS2CPacket(0, true, true, Map.of(server.model().syncId(), bytes)));
             assertTrue(result.restartRequired());
             ClientConfigSync.resetClientConnection();
             assertEquals(8, holder.pending().orElseThrow().restart);
@@ -372,7 +372,7 @@ class RestartSyncStoreTest {
         try (ConfigHolder<HookConfig> holder = client.access()) {
             holder.onUpdate(ignored -> updates.incrementAndGet());
             ClientSyncResult repeated = new ConfigSyncTransactions(id -> id.equals(sync.id()) ? sync : null)
-                .receiveCached(Map.of(sync.id(), payload));
+                .receiveCached(Map.of(sync.id(), payload), true);
             assertTrue(repeated.restartRequired());
             assertNull(repeated.disconnectReason());
             assertTrue(client.state().remoteActive());
@@ -434,7 +434,7 @@ class RestartSyncStoreTest {
         HookConfig.failSave = true;
         try {
             assertEquals(TranslationKey.SYNC_FAILED, new ConfigSyncTransactions(registrations::get)
-                .receive(new ConfigSyncS2CPacket(true, entries)).disconnectReason());
+                .receive(new ConfigSyncS2CPacket(0, true, true, entries)).disconnectReason());
         } finally {
             HookConfig.failSave = false;
         }
@@ -593,12 +593,12 @@ class RestartSyncStoreTest {
         try (ConfigHolder<WorldConfig> holder = LiteConfig.holder(WorldConfig.class)
             .modId("mod").baseDir(clients).create()) {
             ClientSyncResult result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-                true, Map.of(server.model().syncId(), SyncedConfig.of(server).cachedSnapshot().data())));
+                0, true, true, Map.of(server.model().syncId(), SyncedConfig.of(server).cachedSnapshot().data())));
             assertFalse(result.restartRequired());
             remote.restart = 9;
             server.state().replace(remote);
             result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-                true, Map.of(server.model().syncId(), SyncedConfig.of(server).cachedSnapshot().data())));
+                0, true, false, Map.of(server.model().syncId(), SyncedConfig.of(server).cachedSnapshot().data())));
             assertTrue(result.restartRequired());
             assertEquals(8, holder.data().restart);
             assertEquals(9, holder.pending().orElseThrow().restart);
@@ -651,7 +651,7 @@ class RestartSyncStoreTest {
 
     private static ClientSyncResult receive(SyncedConfig<?> sync, ConfigBytes payload) {
         return new ConfigSyncTransactions(id -> id.equals(sync.id()) ? sync : null)
-            .receive(new ConfigSyncS2CPacket(true, Map.of(sync.id(), payload)));
+            .receive(new ConfigSyncS2CPacket(0, true, true, Map.of(sync.id(), payload)));
     }
 
     private static RestartSyncStore store(Path directory, String server) {

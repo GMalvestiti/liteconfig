@@ -60,7 +60,7 @@ class ConfigSyncRegistryTest {
     void testIgnoresAConfigThatAsksForNoSync(@TempDir Path tempDir) {
         create(TestFixtures.SimpleConfig.class, tempDir);
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -109,7 +109,7 @@ class ConfigSyncRegistryTest {
                 .baseDir(tempDir)
                 .create());
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
 
         TestSyncPlatform.setManifestScheduler(() -> {
         });
@@ -142,7 +142,7 @@ class ConfigSyncRegistryTest {
 
     @Test
     void testHandshakeDoesNotLoadConfigsWithoutHolders() {
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -166,11 +166,11 @@ class ConfigSyncRegistryTest {
             .modId("mod")
             .baseDir(tempDir)
             .create();
-        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
 
         holder.close();
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -194,6 +194,7 @@ class ConfigSyncRegistryTest {
         List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();
         TestSyncPlatform.setRequestScheduler(requests::add);
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
+            true,
             Map.of(
                 syncId(TestFixtures.SyncedConfig.class),
                 ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
@@ -287,7 +288,7 @@ class ConfigSyncRegistryTest {
         config.syncNotifier().notifyLocalChange();
 
         assertTrue(NetworkThreadConfig.EVENTS.isEmpty());
-        assertTrue(ServerConfigSync.beginHandshake().getFirst().hashes()
+        assertTrue(ServerConfigSync.beginHandshake(true).getFirst().hashes()
             .containsKey(config.model().syncId()));
         assertEquals(List.of("encode:" + Thread.currentThread().getName()), NetworkThreadConfig.EVENTS);
     }
@@ -583,10 +584,10 @@ class ConfigSyncRegistryTest {
         TestSyncPlatform.setRequestScheduler(requests::add);
 
         assertNull(ConfigSyncRegistry.get(config.model().syncId()));
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(ServerConfigSync.payloadsFor(
-            new ConfigSyncRequestC2SPacket(Set.of(config.model().syncId()))).isEmpty());
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(Map.of(
+            new ConfigSyncRequestC2SPacket(true, Set.of(config.model().syncId()))).isEmpty());
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         apply(config.model().syncId(), encodeWith(config, candidate -> candidate.value = 9));
 
@@ -601,9 +602,9 @@ class ConfigSyncRegistryTest {
         ConfigHolder<WorldSyncedConfig> holder = config.access();
         assertFalse(holder.isActive());
         assertTrue(holder.path().isEmpty());
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(ServerConfigSync.payloadsFor(
-            new ConfigSyncRequestC2SPacket(Set.of(config.model().syncId()))).isEmpty());
+            new ConfigSyncRequestC2SPacket(true, Set.of(config.model().syncId()))).isEmpty());
 
         Path world = tempDir.resolve("world");
         ConfigRegistry.activateWorld(world);
@@ -613,12 +614,12 @@ class ConfigSyncRegistryTest {
             holder.path().orElseThrow());
         assertTrue(handshake().hashes().containsKey(config.model().syncId()));
         assertFalse(ServerConfigSync.payloadsFor(
-            new ConfigSyncRequestC2SPacket(Set.of(config.model().syncId()))).isEmpty());
+            new ConfigSyncRequestC2SPacket(true, Set.of(config.model().syncId()))).isEmpty());
 
         ConfigRegistry.deactivateWorld();
         assertFalse(holder.isActive());
         assertTrue(holder.path().isEmpty());
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -637,7 +638,7 @@ class ConfigSyncRegistryTest {
         assertTrue(holder.path().isEmpty());
         assertEquals(9, holder.data().value);
         assertFalse(holder.update(candidate -> candidate.value = 3).accepted());
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertFalse(Files.exists(tempDir.resolve("mod").resolve("world-sync.json5")));
         ClientConfigSync.resetClientConnection();
         assertFalse(holder.isActive());
@@ -649,7 +650,7 @@ class ConfigSyncRegistryTest {
     @Test
     void testUnknownPayloadIsIgnored() {
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of("unknown", ConfigBytes.of(new byte[]{1}))));
+            new ConfigSyncS2CPacket(0, true, true, Map.of("unknown", ConfigBytes.of(new byte[]{1}))));
 
         assertTrue(result.completed());
         assertFalse(result.restartRequired());
@@ -661,6 +662,7 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<TestFixtures.SyncedConfig> config =
             create(TestFixtures.SyncedConfig.class, tempDir);
         ConfigSyncRequestC2SPacket request = new ConfigSyncRequestC2SPacket(
+            true,
             Set.of(config.model().syncId()));
 
         assertFalse(ServerConfigSync.payloadsFor(request).isEmpty());
@@ -682,7 +684,7 @@ class ConfigSyncRegistryTest {
         ClientSyncResult firstCompletion =
             ClientConfigSync.receivePayload(
                 new ConfigSyncS2CPacket(
-                    7, false, Map.of(first.model().syncId(), firstPayload)));
+                    7, false, true, Map.of(first.model().syncId(), firstPayload)));
 
         assertFalse(firstCompletion.completed());
         assertEquals("hello", first.state().published().greeting);
@@ -690,7 +692,7 @@ class ConfigSyncRegistryTest {
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
-                7, true, Map.of(second.model().syncId(), secondPayload)));
+                7, true, true, Map.of(second.model().syncId(), secondPayload)));
 
         assertTrue(result.completed());
         assertTrue(result.restartRequired());
@@ -708,10 +710,11 @@ class ConfigSyncRegistryTest {
         ConfigBytes firstPayload = encodeWith(first, candidate -> candidate.enabled = false);
 
         ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-            8, false, Map.of(first.model().syncId(), firstPayload)));
+            8, false, true, Map.of(first.model().syncId(), firstPayload)));
         ClientSyncResult result = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
                 8,
+                true,
                 true,
                 Map.of(second.model().syncId(), ConfigBytes.of(new byte[]{1, 2, 3}))));
 
@@ -732,17 +735,17 @@ class ConfigSyncRegistryTest {
             second, candidate -> candidate.greeting = "broadcast");
 
         ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-            10, false, Map.of(first.model().syncId(), firstPayload)));
+            10, false, true, Map.of(first.model().syncId(), firstPayload)));
         ClientSyncResult broadcast = ClientConfigSync.receivePayload(
             new ConfigSyncS2CPacket(
-                11, true, Map.of(second.model().syncId(), secondPayload)));
+                11, true, false, Map.of(second.model().syncId(), secondPayload)));
 
         assertTrue(broadcast.completed());
         assertEquals("broadcast", second.state().published().greeting);
         assertTrue(first.state().published().enabled);
 
         ClientSyncResult initial = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(10, true, Map.of()));
+            new ConfigSyncS2CPacket(10, true, true, Map.of()));
 
         assertTrue(initial.completed());
         assertFalse(first.state().published().enabled);
@@ -752,12 +755,12 @@ class ConfigSyncRegistryTest {
     void testRejectsTransactionsWithTooManyPackets() {
         for (int packet = 0; packet < ConfigSyncProtocol.MAX_TRANSACTION_PACKETS; packet++) {
             ClientSyncResult pending = ClientConfigSync.receivePayload(
-                new ConfigSyncS2CPacket(12, false, Map.of()));
+                new ConfigSyncS2CPacket(12, false, true, Map.of()));
             assertFalse(pending.completed());
         }
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(12, true, Map.of()));
+            new ConfigSyncS2CPacket(12, true, true, Map.of()));
 
         assertTrue(result.completed());
         assertEquals(TranslationKey.SYNC_FAILED, result.disconnectReason());
@@ -784,7 +787,7 @@ class ConfigSyncRegistryTest {
         configs.put(second.model().syncId(), secondPayload);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(14, true, configs));
+            new ConfigSyncS2CPacket(14, true, true, configs));
 
         assertNull(result.disconnectReason());
         assertFalse(first.state().published().enabled);
@@ -818,7 +821,7 @@ class ConfigSyncRegistryTest {
         };
         ClientSyncResult result;
         try {
-            result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(15, true, configs));
+            result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(15, true, true, configs));
         } finally {
             NetworkThreadConfig.BEFORE_ENCODE = () -> {};
         }
@@ -872,7 +875,7 @@ class ConfigSyncRegistryTest {
         };
         ClientSyncResult result;
         try {
-            result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(16, true, configs));
+            result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(16, true, true, configs));
         } finally {
             NetworkThreadConfig.BEFORE_ENCODE = () -> {};
         }
@@ -908,7 +911,7 @@ class ConfigSyncRegistryTest {
         List<ClientSyncResult> results = new ArrayList<>();
         actions.addLast(() -> results.add(
             ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-                13, true, Map.of(config.model().syncId(), payload)))));
+                13, true, true, Map.of(config.model().syncId(), payload)))));
         ClientConfigSync.resetClientConnection();
         while (!actions.isEmpty()) {
             actions.removeFirst().run();
@@ -925,12 +928,12 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         ConfigBytes payload = encodeWith(config, candidate -> candidate.enabled = false);
         ClientSyncResult buffered = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(13, false, Map.of(config.model().syncId(), payload)));
+            new ConfigSyncS2CPacket(13, false, true, Map.of(config.model().syncId(), payload)));
         assertFalse(buffered.completed());
 
         ClientConfigSync.resetClientConnection();
         ClientSyncResult completed = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(13, true, Map.of()));
+            new ConfigSyncS2CPacket(13, true, true, Map.of()));
 
         assertTrue(completed.completed());
         assertNull(completed.disconnectReason());
@@ -942,7 +945,7 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();
         TestSyncPlatform.setRequestScheduler(requests::add);
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         assertEquals(1, requests.size());
 
@@ -955,7 +958,7 @@ class ConfigSyncRegistryTest {
 
     @Test
     void testLateRegistrationSendsRequestsOnClientThread(@TempDir Path tempDir) throws Exception {
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
             syncId(OtherSyncedConfig.class), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
 
         List<String> threads = new ArrayList<>();
@@ -986,7 +989,7 @@ class ConfigSyncRegistryTest {
         }
         TestSyncPlatform.setRequestScheduler(requests::add);
 
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         assertTrue(actions.isEmpty());
         assertEquals(1, requests.size());
@@ -1013,7 +1016,7 @@ class ConfigSyncRegistryTest {
         ConfigBytes payload = encodeWith(config, candidate -> candidate.enabled = false);
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload)));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(config.model().syncId(), payload)));
 
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
@@ -1037,10 +1040,11 @@ class ConfigSyncRegistryTest {
             for (int entry = 0; entry < ConfigSyncProtocol.ENTRIES_PER_PACKET; entry++) {
                 hashes.put("example.config." + batch + "." + entry, hash);
             }
-            ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(hashes));
+            ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, hashes));
         }
 
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
+            true,
             Map.of("example.config.overflow", hash)));
 
         assertEquals(List.of(TranslationKey.SYNC_FAILED), disconnects);
@@ -1079,7 +1083,7 @@ class ConfigSyncRegistryTest {
         assertEquals(ConfigError.CONFLICTING_SYNC_ROOT, failure.error());
         assertTrue(ConfigSyncRegistry.get(first.model().syncId()).wraps(first));
         assertFalse(ConfigSyncRegistry.get(first.model().syncId()).ready());
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(NetworkThreadConfig.EVENTS.stream().noneMatch(event -> event.startsWith("encode:")));
     }
 
@@ -1095,7 +1099,7 @@ class ConfigSyncRegistryTest {
 
         assertTrue(ConfigSyncRegistry.get(config.model().syncId()).wraps(config));
         assertFalse(ConfigSyncRegistry.get(config.model().syncId()).ready());
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertFalse(ClientConfigSync.hasRemoteConnection());
         assertTrue(NetworkThreadConfig.EVENTS.stream().noneMatch(event -> event.startsWith("encode:")));
         NetworkThreadConfig.EVENTS.clear();
@@ -1103,7 +1107,7 @@ class ConfigSyncRegistryTest {
         bind.accept(Runnable::run);
 
         assertTrue(ConfigSyncRegistry.get(config.model().syncId()).ready());
-        assertFalse(ServerConfigSync.beginHandshake().isEmpty());
+        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
         assertEquals(List.of("encode:" + Thread.currentThread().getName()), NetworkThreadConfig.EVENTS);
     }
 
@@ -1121,7 +1125,7 @@ class ConfigSyncRegistryTest {
         assertNull(ConfigSyncRegistry.get(config.model().syncId()));
         TestSyncPlatform.setClientMainThreadExecutor(Runnable::run);
 
-        assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(NetworkThreadConfig.EVENTS.isEmpty());
     }
 
@@ -1135,7 +1139,7 @@ class ConfigSyncRegistryTest {
             TestSyncPlatform.setClientMainThreadExecutor(Runnable::run);
 
             assertNull(ConfigSyncRegistry.get(config.model().syncId()));
-            assertTrue(ServerConfigSync.beginHandshake().isEmpty());
+            assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         } finally {
             NetworkThreadConfig.BEFORE_ENCODE = () -> {
             };
@@ -1149,7 +1153,7 @@ class ConfigSyncRegistryTest {
         NetworkThreadConfig.EVENTS.clear();
 
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, Map.of(config.model().syncId(), payload)));
+            new ConfigSyncS2CPacket(0, true, true, Map.of(config.model().syncId(), payload)));
 
         assertNull(result.disconnectReason());
         assertEquals(Set.of("decode", "validate", "encode", "listener"),
@@ -1200,7 +1204,7 @@ class ConfigSyncRegistryTest {
         });
 
         ClientSyncResult result = ClientConfigSync.receivePayload(new ConfigSyncS2CPacket(
-            true, Map.of(config.model().syncId(), payload)));
+            0, true, true, Map.of(config.model().syncId(), payload)));
 
         assertTrue(result.restartRequired());
         assertNull(result.disconnectReason());
@@ -1282,6 +1286,7 @@ class ConfigSyncRegistryTest {
     void testRequestSchedulerRunsSynchronouslyBeforeRegistrationIsReleased(@TempDir Path tempDir) {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
+            true,
             Map.of(config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         Deque<Runnable> actions = new ArrayDeque<>();
         List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();
@@ -1320,7 +1325,7 @@ class ConfigSyncRegistryTest {
     }
 
     private static ConfigSyncHandshakeS2CPacket handshake() {
-        return ServerConfigSync.beginHandshake().getFirst();
+        return ServerConfigSync.beginHandshake(true).getFirst();
     }
 
     private static boolean apply(String id, ConfigBytes payload) {
@@ -1329,7 +1334,7 @@ class ConfigSyncRegistryTest {
 
     private static boolean receive(Map<String, ConfigBytes> configs) {
         ClientSyncResult result = ClientConfigSync.receivePayload(
-            new ConfigSyncS2CPacket(true, configs));
+            new ConfigSyncS2CPacket(0, true, true, configs));
         assertTrue(result.completed());
         assertNull(result.disconnectReason());
         return result.restartRequired();
