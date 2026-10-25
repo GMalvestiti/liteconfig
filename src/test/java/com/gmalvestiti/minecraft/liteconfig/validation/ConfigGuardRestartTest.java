@@ -80,7 +80,7 @@ class ConfigGuardRestartTest {
 
     @Test
     void testRestartTraversalStopsAtObjectCycles() {
-        ConfigGuard<CyclicConfig> guard = new ConfigGuard<>(TestFixtures.model(CyclicConfig.class));
+        ConfigGuard<CyclicConfig> guard = new ConfigGuard<>(TestFixtures.model(CyclicConfig.class), null);
         CyclicConfig current = new CyclicConfig();
         CyclicConfig candidate = new CyclicConfig();
 

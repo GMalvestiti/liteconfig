@@ -32,7 +32,7 @@ class ConfigNormalizationTest {
     @Test
     void normalizesOwnedCandidatesAndChoicesBeforeValidation() {
         ConfigModel<Choices> model = TestFixtures.model(Choices.class);
-        ConfigGuard<Choices> guard = new ConfigGuard<>(model);
+        ConfigGuard<Choices> guard = new ConfigGuard<>(model, null);
         Choices candidate = new Choices();
 
         guard.normalize(candidate);
@@ -60,7 +60,7 @@ class ConfigNormalizationTest {
     @Test
     void trimsBeforeCaseNormalizationWhilePreservingExplicitOptOuts() {
         ConfigModel<TrimChoices> model = TestFixtures.model(TrimChoices.class);
-        ConfigGuard<TrimChoices> guard = new ConfigGuard<>(model);
+        ConfigGuard<TrimChoices> guard = new ConfigGuard<>(model, null);
         TrimChoices candidate = new TrimChoices();
 
         guard.normalize(candidate);
@@ -86,7 +86,7 @@ class ConfigNormalizationTest {
 
     @Test
     void noneStillUsesCaseInsensitiveMembershipAndValidationNeverMutates() {
-        ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class));
+        ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class), null);
         Choices candidate = new Choices();
         candidate.database = "sqlite";
         candidate.nested.mode = "SAFE";
@@ -112,7 +112,7 @@ class ConfigNormalizationTest {
             assertEquals("MiXeD", NONE.apply(" \tMiXeD\r\n", true));
             assertEquals(" MiXeD ", NONE.apply(" MiXeD ", false));
             assertNull(NONE.apply(null, true));
-            ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class));
+            ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class), null);
             Choices candidate = new Choices();
             candidate.database = null;
             guard.normalize(candidate);
@@ -124,7 +124,7 @@ class ConfigNormalizationTest {
 
     @Test
     void normalizesBeforeComparingRestartValues() {
-        ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class));
+        ConfigGuard<Choices> guard = new ConfigGuard<>(TestFixtures.model(Choices.class), null);
         Choices current = new Choices();
         guard.normalize(current);
         Choices candidate = new Choices();

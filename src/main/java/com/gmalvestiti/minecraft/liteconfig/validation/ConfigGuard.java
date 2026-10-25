@@ -9,6 +9,7 @@ import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
+import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncSchema;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigExtensionLookup;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigSerialization;
@@ -29,8 +30,10 @@ public final class ConfigGuard<T> {
     private final ConfigFieldPlan fields;
     private final ConfigExtensionLookup extensions;
     private final ConfigConstraintValidator constraintValidator;
+    private final ConfigSyncSchema<T> syncSchema;
 
-    public ConfigGuard(ConfigModel<T> model) {
+    public ConfigGuard(ConfigModel<T> model, ConfigSyncSchema<T> syncSchema) {
+        this.syncSchema = syncSchema;
         this.scope = model.scope();
         this.typeName = model.typeName();
         this.fieldAccess = model.fieldAccess();
@@ -74,6 +77,10 @@ public final class ConfigGuard<T> {
 
         if (!violations.isEmpty()) {
             throw scope.exception(ConfigError.VALIDATION_FAILED, violations, typeName, summaryOf(violations));
+        }
+
+        if (syncSchema != null) {
+            syncSchema.validate(candidate);
         }
     }
 

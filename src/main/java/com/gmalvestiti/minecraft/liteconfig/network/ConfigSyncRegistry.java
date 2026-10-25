@@ -6,6 +6,8 @@ import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -14,8 +16,14 @@ import java.lang.ref.WeakReference;
 public final class ConfigSyncRegistry {
 
     private static final Map<String, SyncedConfig<?>> SYNCED = new ConcurrentHashMap<>();
+    private static final Map<String, SyncedConfig<?>> LOCAL = new HashMap<>();
 
     private ConfigSyncRegistry() {}
+
+    static boolean runtimeAvailable() {
+        return ServerConfigSync.serverMainThreadExecutor() != null
+            || ClientConfigSync.availableMainThreadExecutor() != null;
+    }
 
     static SyncedConfig<?> get(String id) {
         return SYNCED.get(id);
@@ -23,6 +31,43 @@ public final class ConfigSyncRegistry {
 
     static Collection<SyncedConfig<?>> values() {
         return SYNCED.values();
+    }
+
+    static List<SyncedConfig<?>> localValues() {
+        synchronized (SYNCED) {
+            return List.copyOf(LOCAL.values());
+        }
+    }
+
+    public static void refreshLocalContext(RegisteredConfig<?> config) {
+        synchronized (SYNCED) {
+            SyncedConfig<?> synced = SYNCED.get(config.model().syncId());
+            if (synced != null && synced.wraps(config)) {
+                updateLocalAdmission(config, synced);
+            }
+        }
+    }
+
+    private static void updateLocalAdmission(RegisteredConfig<?> config, SyncedConfig<?> synced) {
+        if (!config.isLocallyWritable()) {
+            LOCAL.remove(synced.id(), synced);
+        } else if (!LOCAL.containsKey(synced.id())) {
+            if (LOCAL.size() >= ConfigSyncProtocol.MAX_MANIFEST_ENTRIES) {
+                throw config.model().scope().exception(ConfigError.SYNC_MANIFEST_FULL,
+                    synced.id(), LOCAL.size() + 1, ConfigSyncProtocol.MAX_MANIFEST_ENTRIES);
+            }
+            LOCAL.put(synced.id(), synced);
+        }
+    }
+
+    private static boolean remove(SyncedConfig<?> synced) {
+        synchronized (SYNCED) {
+            if (!SYNCED.remove(synced.id(), synced)) {
+                return false;
+            }
+            LOCAL.remove(synced.id(), synced);
+            return true;
+        }
     }
 
     public static void register(RegisteredConfig<?> config) {
@@ -33,17 +78,23 @@ public final class ConfigSyncRegistry {
 
         SyncedConfig<?> synced = config.writing(() -> {
             SyncedConfig<?> candidate = SyncedConfig.of(config);
-            SyncedConfig<?> existing = SYNCED.putIfAbsent(candidate.id(), candidate);
-            if (existing != null) {
-                if (!existing.wraps(config)) {
-                    throw config.model().scope().exception(ConfigError.CONFLICTING_SYNC_ROOT, candidate.id());
+
+            synchronized (SYNCED) {
+                SyncedConfig<?> existing = SYNCED.get(candidate.id());
+                if (existing != null) {
+                    if (!existing.wraps(config)) {
+                        throw config.model().scope().exception(ConfigError.CONFLICTING_SYNC_ROOT, candidate.id());
+                    }
+                    return existing;
                 }
-                return existing;
+                updateLocalAdmission(config, candidate);
+                SYNCED.put(candidate.id(), candidate);
             }
+
             try {
                 candidate.registerLocalChangeBroadcast();
             } catch (RuntimeException | Error failure) {
-                SYNCED.remove(candidate.id(), candidate);
+                remove(candidate);
                 throw failure;
             }
             return candidate;
@@ -59,7 +110,7 @@ public final class ConfigSyncRegistry {
                 }
             });
         } catch (RuntimeException | Error failure) {
-            if (SYNCED.remove(synced.id(), synced)) {
+            if (remove(synced)) {
                 synced.close();
             }
             throw failure;
@@ -69,7 +120,7 @@ public final class ConfigSyncRegistry {
     public static void unregister(RegisteredConfig<?> config) {
         SyncedConfig<?> synced = SYNCED.get(config.model().syncId());
 
-        if (synced == null || !synced.wraps(config) || !SYNCED.remove(synced.id(), synced)) {
+        if (synced == null || !synced.wraps(config) || !remove(synced)) {
             return;
         }
 
@@ -94,10 +145,10 @@ public final class ConfigSyncRegistry {
         }
 
         try {
-            synced.cachedSnapshot();
+            synced.activate();
             ClientConfigSync.requestIfAdvertised(synced);
         } catch (RuntimeException | Error failure) {
-            if (SYNCED.remove(synced.id(), synced)) {
+            if (remove(synced)) {
                 synced.close();
             }
 

@@ -45,14 +45,14 @@ public final class SyncValueCodecs {
                 .orElse("1");
 
             return Optional.of(new Resolved(
-                NullableValueCodec.wrap(rawType, registered),
+                NullableValueCodec.wrap(rawType, registered, false),
                 "registered:" + declaredType.getTypeName() + '@' + version));
         }
 
         StreamCodec<ByteBuf, ?> builtIn = BuiltInValueCodecs.find(rawType);
         if (builtIn != null) {
             return Optional.of(new Resolved(
-                NullableValueCodec.wrap(rawType, builtIn),
+                NullableValueCodec.wrap(rawType, builtIn, true),
                 "builtin:" + rawType.getTypeName()));
         }
 
@@ -63,7 +63,7 @@ public final class SyncValueCodecs {
             return strategy(component).map(element -> new Resolved(
                 NullableValueCodec.wrap(rawType,
                     ArrayValueCodecs.array(rawTypeOf(component), element.codec(),
-                        element.schema().startsWith("registered:"))),
+                        element.schema().startsWith("registered:")), false),
                 "array<" + element.schema() + '>'));
         }
 
@@ -78,7 +78,7 @@ public final class SyncValueCodecs {
 
             return strategy(arguments[0]).map(element -> new Resolved(
                 NullableValueCodec.wrap(
-                    rawType, CollectionValueCodecs.list(element.codec())),
+                    rawType, CollectionValueCodecs.list(element.codec()), false),
                 "list<" + element.schema() + '>'));
         }
 
@@ -88,7 +88,7 @@ public final class SyncValueCodecs {
 
             return strategy(arguments[0]).map(element -> new Resolved(
                 NullableValueCodec.wrap(
-                    rawType, CollectionValueCodecs.set(element.codec())),
+                    rawType, CollectionValueCodecs.set(element.codec()), false),
                 "set<" + element.schema() + '>'));
         }
 
@@ -104,7 +104,7 @@ public final class SyncValueCodecs {
                     NullableValueCodec.wrap(
                         rawType,
                         CollectionValueCodecs.map(
-                            key.get().codec(), value.get().codec())),
+                            key.get().codec(), value.get().codec()), false),
                     "map<" + key.get().schema() + ',' + value.get().schema() + '>'));
             }
         }

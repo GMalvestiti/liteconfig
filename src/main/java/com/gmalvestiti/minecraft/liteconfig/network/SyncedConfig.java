@@ -8,26 +8,17 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
-import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
-import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
-import com.gmalvestiti.minecraft.liteconfig.network.codec.SyncValueCodecs;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
-import com.gmalvestiti.minecraft.liteconfig.shared.PropertyPath;
 import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigStorage;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.handler.codec.DecoderException;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Objects;
 
 final class SyncedConfig<T> {
 
@@ -35,9 +26,8 @@ final class SyncedConfig<T> {
 
     private final RegisteredConfig<T> config;
     private final RestartSyncPolicy restartSyncPolicy;
-    private List<SyncedValue> values;
-    private boolean carriesRestartValues;
-    private long schema;
+    private final ConfigSyncSchema<T> syncSchema;
+    private final boolean carriesRestartValues;
     private Snapshot cachedSnapshot;
     private T snapshotState;
     private ConfigBytes broadcastHash;
@@ -46,6 +36,9 @@ final class SyncedConfig<T> {
 
     private SyncedConfig(RegisteredConfig<T> config) {
         this.config = config;
+        this.syncSchema = Objects.requireNonNull(config.syncSchema(), "syncSchema");
+        this.carriesRestartValues = config.model().metadata().synced().stream()
+            .anyMatch(ConfigProperty::restart);
         Config declaration = config.model().type().getAnnotation(Config.class);
         this.restartSyncPolicy = declaration == null
             ? RestartSyncPolicy.DEFER : declaration.restartSyncPolicy();
@@ -60,30 +53,6 @@ final class SyncedConfig<T> {
             return;
         }
 
-        Class<T> rootType = this.config.model().type();
-        ConfigScope scope = this.config.model().scope();
-
-        List<SyncedValue> values = new ArrayList<>();
-        for (ConfigProperty property : this.config.model().metadata().synced()) {
-
-            Field[] chain = chainOf(rootType, property.path());
-            Type type = chain[chain.length - 1].getGenericType();
-
-            SyncValueCodecs.Resolved resolved = SyncValueCodecs.resolve(type, property, scope);
-
-            values.add(new SyncedValue(
-                property.path(),
-                chain,
-                type,
-                resolved.codec(),
-                resolved.schema(),
-                property.restart()));
-        }
-
-        this.values = List.copyOf(values);
-
-        this.carriesRestartValues = values.stream().anyMatch(SyncedValue::restart);
-        this.schema = schemaOf(this.config, values, this.restartSyncPolicy);
         this.snapshotState = this.config.state().published();
         this.cachedSnapshot = snapshot(this.snapshotState);
         this.broadcastHash = this.cachedSnapshot.hash();
@@ -105,6 +74,16 @@ final class SyncedConfig<T> {
 
     boolean locallyActive() {
         return config.isLocallyWritable() && !config.state().remoteActive();
+    }
+
+    void activate() {
+        config.writing(() -> {
+            if (cachedSnapshot == null) {
+                syncSchema.validate(config.declaredDefaults());
+            }
+            config.state().pending().ifPresent(syncSchema::validate);
+            return cachedSnapshot();
+        });
     }
 
     private Snapshot snapshot(T state) {
@@ -152,47 +131,7 @@ final class SyncedConfig<T> {
     }
 
     private byte[] encode(T state) {
-        ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
-
-        ByteBuf buffer = Unpooled.buffer();
-        ByteBuf valueBuffer = Unpooled.buffer();
-
-        try {
-            buffer.writeLong(this.schema);
-
-            for (SyncedValue value : this.values) {
-
-                valueBuffer.clear();
-                value.codec().encode(valueBuffer, value.read(fieldAccess, state));
-
-                int length = valueBuffer.readableBytes();
-                if (length > ConfigSyncProtocol.MAX_VALUE_BYTES) {
-                    throw this.config.model().scope().exception(
-                        ConfigError.SYNC_APPLY_FAILED,
-                        id(),
-                        "encoded value " + value.path() + " exceeds "
-                            + ConfigSyncProtocol.MAX_VALUE_BYTES + " bytes");
-                }
-
-                ByteBufCodecs.VAR_INT.encode(buffer, length);
-                buffer.writeBytes(valueBuffer, valueBuffer.readerIndex(), length);
-            }
-
-            if (buffer.readableBytes() > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
-                throw this.config.model().scope().exception(
-                    ConfigError.SYNC_APPLY_FAILED,
-                    id(),
-                    "encoded config exceeds " + ConfigSyncProtocol.MAX_CONFIG_BYTES + " bytes");
-            }
-
-            byte[] encoded = new byte[buffer.readableBytes()];
-            buffer.readBytes(encoded);
-
-            return encoded;
-        } finally {
-            valueBuffer.release();
-            buffer.release();
-        }
+        return syncSchema.encode(state);
     }
 
     Prepared<T> prepare(ConfigBytes payload) {
@@ -241,7 +180,7 @@ final class SyncedConfig<T> {
 
         ByteBuf buffer = bytes.readBuffer();
         try {
-            if (buffer.readableBytes() >= Long.BYTES && buffer.readLong() == schema) {
+            if (buffer.readableBytes() >= Long.BYTES && buffer.readLong() == syncSchema.fingerprint()) {
                 return true;
             }
             config.model().scope().logInfo("Ignoring restart-sync cache with an obsolete schema for " + id());
@@ -319,7 +258,7 @@ final class SyncedConfig<T> {
         T isolated = this.config.state().copyOf(source);
         ConfigFieldAccess access = this.config.model().fieldAccess();
 
-        for (SyncedValue value : values) {
+        for (SyncedValue value : syncSchema.values()) {
             if (value.restart()) {
                 value.write(access, target, value.read(access, isolated));
             }
@@ -364,11 +303,11 @@ final class SyncedConfig<T> {
             ConfigSyncProtocol.requireReadable(buffer, Long.BYTES, "config schema");
 
             long receivedSchema = buffer.readLong();
-            if (receivedSchema != this.schema) {
-                throw new DecoderException("schema mismatch: received " + receivedSchema + ", expected " + this.schema);
+            if (receivedSchema != syncSchema.fingerprint()) {
+                throw new DecoderException("schema mismatch: received " + receivedSchema + ", expected " + syncSchema.fingerprint());
             }
 
-            for (SyncedValue value : this.values) {
+            for (SyncedValue value : syncSchema.values()) {
                 int length = ConfigSyncProtocol.readSize(buffer, ConfigSyncProtocol.MAX_VALUE_BYTES, "synced value");
 
                 ConfigSyncProtocol.requireReadable(buffer, length, "synced value");
@@ -400,7 +339,10 @@ final class SyncedConfig<T> {
         }
     }
 
-    private boolean changedOnWire(SyncedValue value, Object first, Object second) {
+    private boolean encodedValueChanged(SyncedValue value, Object first, Object second) {
+        if (first == second) {
+            return false;
+        }
         ByteBuf buffer = Unpooled.buffer();
         try {
             value.codec().encode(buffer, first);
@@ -413,13 +355,7 @@ final class SyncedConfig<T> {
                 return true;
             }
 
-            for (int index = 0; index < firstLength; index++) {
-                if (buffer.getByte(index) != buffer.getByte(firstLength + index)) {
-                    return true;
-                }
-            }
-
-            return false;
+            return !ByteBufUtil.equals(buffer, 0, buffer, firstLength, firstLength);
         } finally {
             buffer.release();
         }
@@ -460,9 +396,9 @@ final class SyncedConfig<T> {
             return false;
         }
 
-        for (SyncedValue value : this.values) {
+        for (SyncedValue value : syncSchema.values()) {
             if (value.restart()
-                && changedOnWire(value, value.read(fieldAccess, before), value.read(fieldAccess, after))) {
+                && encodedValueChanged(value, value.read(fieldAccess, before), value.read(fieldAccess, after))) {
                 return true;
             }
         }
@@ -470,84 +406,8 @@ final class SyncedConfig<T> {
         return false;
     }
 
-    /**
-     * Fingerprints what this build puts on the wire: which values, in which order, as which type.
-     * Restart policy is included so a mismatched client cannot silently defer a required restart.
-     */
-    private static long schemaOf(
-        RegisteredConfig<?> config, List<SyncedValue> values, RestartSyncPolicy restartSyncPolicy
-    ) {
-        StringBuilder shape = new StringBuilder()
-            .append(config.model().typeName())
-            .append('|')
-            .append(config.pathResolver().type())
-            .append('|')
-            .append(restartSyncPolicy);
-
-        if (config.pathResolver().type() == ConfigType.WORLD) {
-            shape.append("|world-session-restart");
-        }
-
-        for (SyncedValue value : values) {
-            shape.append('|')
-                .append(value.path())
-                .append(':')
-                .append(value.type().getTypeName())
-                .append(':')
-                .append(value.schema())
-                .append(':')
-                .append(value.restart());
-        }
-
-        return SHA_256.hashString(shape, StandardCharsets.UTF_8).asLong();
-    }
-
     private static byte[] hash(byte[] data) {
         return SHA_256.hashBytes(data).asBytes();
-    }
-
-    private static Field[] chainOf(Class<?> rootType, String path) {
-        String[] segments = PropertyPath.split(path);
-        Field[] chain = new Field[segments.length];
-
-        Class<?> owner = rootType;
-        for (int i = 0; i < segments.length; i++) {
-            Field field = DeclaredConfig.of(owner).property(segments[i]).field();
-            chain[i] = field;
-            owner = field.getType();
-        }
-
-        return chain;
-    }
-
-    /**
-     * One synced leaf: the fields that reach it from the root, its declared type, and how it
-     * travels.
-     */
-    private record SyncedValue(
-        String path,
-        Field[] chain,
-        Type type,
-        StreamCodec<ByteBuf, Object> codec,
-        String schema,
-        boolean restart
-    ) {
-
-        Object read(ConfigFieldAccess fieldAccess, Object root) {
-            Object value = root;
-            for (Field field : chain) {
-                value = fieldAccess.read(field, value);
-            }
-            return value;
-        }
-
-        void write(ConfigFieldAccess fieldAccess, Object root, Object leaf) {
-            Object owner = root;
-            for (int i = 0; i < chain.length - 1; i++) {
-                owner = fieldAccess.read(chain[i], owner);
-            }
-            fieldAccess.write(chain[chain.length - 1], owner, leaf);
-        }
     }
 
     record Snapshot(ConfigBytes data, ConfigBytes hash) {}

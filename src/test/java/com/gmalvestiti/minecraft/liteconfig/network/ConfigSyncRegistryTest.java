@@ -589,7 +589,8 @@ class ConfigSyncRegistryTest {
             new ConfigSyncRequestC2SPacket(true, Set.of(config.model().syncId()))).isEmpty());
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
-        apply(config.model().syncId(), encodeWith(config, candidate -> candidate.value = 9));
+        assertNull(config.syncSchema());
+        apply(config.model().syncId(), ConfigBytes.of(new byte[]{1, 2, 3}));
 
         assertTrue(requests.isEmpty());
         assertEquals(1, config.state().published().value);
@@ -1059,17 +1060,17 @@ class ConfigSyncRegistryTest {
     }
 
     @Test
-    void testDefersSyncWorkUntilClientStartup(@TempDir Path tempDir) throws Exception {
+    void testDefersNetworkActivationUntilClientStartup(@TempDir Path tempDir) throws Exception {
         assertStartupActivation(tempDir, TestSyncPlatform::setClientMainThreadExecutor);
     }
 
     @Test
-    void testDefersSyncWorkUntilServerStartup(@TempDir Path tempDir) throws Exception {
+    void testDefersNetworkActivationUntilServerStartup(@TempDir Path tempDir) throws Exception {
         assertStartupActivation(tempDir, TestSyncPlatform::setServerMainThreadExecutor);
     }
 
     @Test
-    void testRejectsConflictingRootsBeforeStartupWithoutEncoding(@TempDir Path tempDir) throws Exception {
+    void testRejectsConflictingRootsBeforeNetworkActivation(@TempDir Path tempDir) throws Exception {
         ConfigRegistryIsolation.beforeGameStartup();
         NetworkThreadConfig.EVENTS.clear();
         TestSyncPlatform.setRemoteConnectionCheck(() -> {
@@ -1102,13 +1103,17 @@ class ConfigSyncRegistryTest {
         assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertFalse(ClientConfigSync.hasRemoteConnection());
         assertTrue(NetworkThreadConfig.EVENTS.stream().noneMatch(event -> event.startsWith("encode:")));
+        var values = ConfigSyncSchema.class.getDeclaredField("values");
+        values.setAccessible(true);
+        assertNull(values.get(config.syncSchema()));
         NetworkThreadConfig.EVENTS.clear();
 
         bind.accept(Runnable::run);
 
         assertTrue(ConfigSyncRegistry.get(config.model().syncId()).ready());
         assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
-        assertEquals(List.of("encode:" + Thread.currentThread().getName()), NetworkThreadConfig.EVENTS);
+        String encoded = "encode:" + Thread.currentThread().getName();
+        assertEquals(List.of(encoded, encoded), NetworkThreadConfig.EVENTS);
     }
 
     @Test
@@ -1315,6 +1320,7 @@ class ConfigSyncRegistryTest {
 
                     @Override
                     public void encode(ByteBuf buffer, ThreadValue value) {
+                        assertTrue(ConfigSyncRegistry.runtimeAvailable(), "Stream codec used before game initialization");
                         NetworkThreadConfig.BEFORE_ENCODE.run();
                         NetworkThreadConfig.record("encode");
                         buffer.writeInt(value.value());

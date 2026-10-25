@@ -75,7 +75,7 @@ class ConfigEngineTest {
             TestFixtures.storage(tempDir, TestFixtures.SimpleConfig.class),
             source -> {
                 throw new AssertionError("a root without beforeSave must not be copied");
-            }, new ConfigGuard<>(model)::normalize);
+            }, new ConfigGuard<>(model, null)::normalize);
         TestFixtures.SimpleConfig published = new TestFixtures.SimpleConfig();
         published.value = 7;
 
@@ -135,13 +135,13 @@ class ConfigEngineTest {
                 copy.afterLoadCalled = source.afterLoadCalled;
                 copy.beforeSaveCalled = source.beforeSaveCalled;
                 return copy;
-            }, new ConfigGuard<>(model)::normalize);
+            }, new ConfigGuard<>(model, null)::normalize);
     }
 
     private <T> ConfigEngine<T> engine(Path tempDir, Class<T> type, StateCloner<T> cloner) {
         ConfigModel<T> model = TestFixtures.model(type);
         return new ConfigEngine<>(
-            model, TestFixtures.storage(tempDir, type), cloner, new ConfigGuard<>(model)::normalize);
+            model, TestFixtures.storage(tempDir, type), cloner, new ConfigGuard<>(model, null)::normalize);
     }
 
     @Test
@@ -149,7 +149,7 @@ class ConfigEngineTest {
         ConfigModel<SaveChoices> model = TestFixtures.model(SaveChoices.class);
         ConfigStorage<SaveChoices> storage = TestFixtures.storage(directory, SaveChoices.class);
         ConfigEngine<SaveChoices> engine = new ConfigEngine<>(model, storage,
-            source -> ConfigSerialization.copy(source, SaveChoices.class), new ConfigGuard<>(model)::normalize);
+            source -> ConfigSerialization.copy(source, SaveChoices.class), new ConfigGuard<>(model, null)::normalize);
         SaveChoices source = new SaveChoices();
 
         engine.save(source);

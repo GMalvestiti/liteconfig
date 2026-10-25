@@ -1,6 +1,8 @@
 package com.gmalvestiti.minecraft.liteconfig.network.codec;
 
+import com.gmalvestiti.minecraft.liteconfig.exception.SyncEncodingException;
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.EncoderException;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
@@ -11,7 +13,8 @@ final class NullableValueCodec {
     @SuppressWarnings({"unchecked", "ConstantValue", "DataFlowIssue"})
     static StreamCodec<ByteBuf, Object> wrap(
         Class<?> declaredType,
-        StreamCodec<ByteBuf, ?> codec
+        StreamCodec<ByteBuf, ?> codec,
+        boolean builtIn
     ) {
         StreamCodec<ByteBuf, Object> typed = (StreamCodec<ByteBuf, Object>) codec;
 
@@ -24,7 +27,14 @@ final class NullableValueCodec {
             ByteBufCodecs.BOOL.encode(buffer, present);
 
             if (present) {
-                typed.encode(buffer, value);
+                try {
+                    typed.encode(buffer, value);
+                } catch (EncoderException failure) {
+                    if (builtIn) {
+                        throw new SyncEncodingException("sync.string-size", failure.getMessage());
+                    }
+                    throw failure;
+                }
             }
         }, buffer -> {
             if (!ByteBufCodecs.BOOL.decode(buffer)) {

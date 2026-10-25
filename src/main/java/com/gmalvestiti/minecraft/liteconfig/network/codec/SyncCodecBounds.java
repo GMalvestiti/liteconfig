@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.network.codec;
 
+import com.gmalvestiti.minecraft.liteconfig.exception.SyncEncodingException;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -20,7 +21,8 @@ final class SyncCodecBounds {
 
     static void requireCollectionSize(int size, String kind) {
         if (size > MAX_COLLECTION_ENTRIES) {
-            throw new IllegalArgumentException("Synced " + kind + " exceeds " + MAX_COLLECTION_ENTRIES + " entries");
+            throw new SyncEncodingException("sync.collection-size",
+                "synced " + kind + " has " + size + " entries; maximum is " + MAX_COLLECTION_ENTRIES);
         }
     }
 

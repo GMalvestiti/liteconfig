@@ -52,6 +52,7 @@ public final class ConfigRegistryIsolation implements BeforeEachCallback, AfterE
         setStaticField(ConfigRegistry.class, "worldVersion", 0L);
 
         clearStaticMap(ConfigSyncRegistry.class, "SYNCED");
+        clearStaticMap(ConfigSyncRegistry.class, "LOCAL");
         TestSyncPlatform.reset();
         ClientConfigSync.resetClientConnection();
         clearCollection(staticField(LiteConfig.codecs().getClass(), "plannedTypes")

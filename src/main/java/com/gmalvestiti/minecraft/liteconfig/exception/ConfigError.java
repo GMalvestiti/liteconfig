@@ -104,6 +104,8 @@ public enum ConfigError {
     UNSUPPORTED_SYNC_TYPE("Field %s of type %s cannot be synced: no wire representation is registered for it", true),
     /** Signals that one synced config type was registered from more than one config root. */
     CONFLICTING_SYNC_ROOT("Synced config %s is already registered from another config root", true),
+    /** Signals that local registration or world activation would overflow the sync manifest. */
+    SYNC_MANIFEST_FULL("Cannot advertise synced config %s: manifest would contain %d entries; maximum is %d"),
     /** Signals that a config sync payload could not be applied to its registered config. */
     SYNC_APPLY_FAILED("Failed to apply a sync payload for %s: %s");
 

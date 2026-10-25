@@ -24,7 +24,7 @@ class ConfigGuardValidationTest {
     @Test
     void testSkipsValidationWhenTheRootIsNotAnExtension() {
         ConfigGuard<TestFixtures.SimpleConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.SimpleConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.SimpleConfig.class), null);
 
         assertTrue(guard.violationsOf(new TestFixtures.SimpleConfig()).isEmpty());
         assertDoesNotThrow(() -> guard.validate(new TestFixtures.SimpleConfig()));
@@ -33,7 +33,7 @@ class ConfigGuardValidationTest {
     @Test
     void testSkipsValidationWhenTheRootKeepsTheDefault() {
         ConfigGuard<TestFixtures.HookFailureConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.HookFailureConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.HookFailureConfig.class), null);
 
         assertTrue(guard.violationsOf(new TestFixtures.HookFailureConfig()).isEmpty());
     }
@@ -80,7 +80,7 @@ class ConfigGuardValidationTest {
     @Test
     void testWrapsRuntimeValidationFailures() {
         ConfigGuard<TestFixtures.ThrowingValidatorConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.ThrowingValidatorConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.ThrowingValidatorConfig.class), null);
         TestFixtures.ThrowingValidatorConfig config = new TestFixtures.ThrowingValidatorConfig();
         config.value = -1;
 
@@ -115,7 +115,7 @@ class ConfigGuardValidationTest {
     @Test
     void testReturnsNoViolationsWhenTheExtensionOverridesNothing() {
         ConfigGuard<TestFixtures.BareExtensionConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.BareExtensionConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.BareExtensionConfig.class), null);
 
         assertTrue(guard.violationsOf(new TestFixtures.BareExtensionConfig()).isEmpty());
         assertDoesNotThrow(() -> guard.validate(new TestFixtures.BareExtensionConfig()));
@@ -124,7 +124,7 @@ class ConfigGuardValidationTest {
     @Test
     void testReportsAllDeclaredFailuresWithoutInvokingCustomValidation() {
         ConfigGuard<ConstrainedValidation> guard =
-            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class));
+            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class), null);
         ConstrainedValidation candidate = new ConstrainedValidation();
         candidate.name = null;
         candidate.copies = 0;
@@ -149,7 +149,7 @@ class ConfigGuardValidationTest {
     @Test
     void testSkipsCustomValidationForAnInvalidRange() {
         ConfigGuard<ConstrainedValidation> guard =
-            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class));
+            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class), null);
         ConstrainedValidation candidate = new ConstrainedValidation();
         candidate.copies = 0;
 
@@ -161,7 +161,7 @@ class ConfigGuardValidationTest {
     @Test
     void testSkipsCustomValidationForInvalidNestedValues() {
         ConfigGuard<ConstrainedValidation> guard =
-            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class));
+            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class), null);
         ConstrainedValidation candidate = new ConstrainedValidation();
         candidate.section.label = null;
 
@@ -176,7 +176,7 @@ class ConfigGuardValidationTest {
     @Test
     void testRunsCustomValidationAfterDeclaredConstraintsPass() {
         ConfigGuard<ConstrainedValidation> guard =
-            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class));
+            new ConfigGuard<>(TestFixtures.model(ConstrainedValidation.class), null);
         ConstrainedValidation candidate = new ConstrainedValidation();
 
         assertTrue(guard.violationsOf(candidate).isEmpty());
@@ -191,7 +191,7 @@ class ConfigGuardValidationTest {
     }
 
     private static ConfigGuard<ValidatingConfig> guardOf() {
-        return new ConfigGuard<>(TestFixtures.model(ValidatingConfig.class));
+        return new ConfigGuard<>(TestFixtures.model(ValidatingConfig.class), null);
     }
 
     public static class ConstrainedValidation implements ConfigExtension {

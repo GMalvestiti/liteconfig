@@ -11,6 +11,8 @@ import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventNotifier;
 import com.gmalvestiti.minecraft.liteconfig.engine.ConfigSyncNotifier;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.StateCopies;
+import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
+import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncSchema;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigExceptionHandler;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigOutcome;
@@ -38,6 +40,7 @@ public final class RegisteredConfig<T> {
     private final ConfigModel<T> model;
     private final ConfigEngine<T> engine;
     private final ConfigGuard<T> guard;
+    private final ConfigSyncSchema<T> syncSchema;
     private final ConfigEventNotifier<T> holderEvents;
     private final ConfigSyncNotifier<T> syncNotifier;
     private final ConfigExceptionHandler exceptionHandler;
@@ -50,6 +53,7 @@ public final class RegisteredConfig<T> {
         ConfigModel<T> model,
         ConfigEngine<T> engine,
         ConfigGuard<T> guard,
+        ConfigSyncSchema<T> syncSchema,
         ConfigEventNotifier<T> holderEvents,
         ConfigSyncNotifier<T> syncNotifier,
         ConfigExceptionHandler exceptionHandler,
@@ -60,6 +64,7 @@ public final class RegisteredConfig<T> {
         this.model = model;
         this.engine = engine;
         this.guard = guard;
+        this.syncSchema = syncSchema;
         this.holderEvents = holderEvents;
         this.syncNotifier = syncNotifier;
         this.exceptionHandler = exceptionHandler;
@@ -79,6 +84,10 @@ public final class RegisteredConfig<T> {
 
     public ConfigGuard<T> guard() {
         return guard;
+    }
+
+    public ConfigSyncSchema<T> syncSchema() {
+        return syncSchema;
     }
 
     public ConfigEventNotifier<T> holderEvents() {
@@ -171,6 +180,8 @@ public final class RegisteredConfig<T> {
                     return;
                 }
 
+                ConfigSyncRegistry.refreshLocalContext(this);
+
                 if (isLocallyWritable()) {
                     ConfigOutcome<T> read = exceptionHandler.onRead(model.type(), () -> {
                         T candidate = engine.load(declaredDefaults());
@@ -192,6 +203,7 @@ public final class RegisteredConfig<T> {
                 }
             } catch (RuntimeException | Error failure) {
                 pathResolver.bindWorld(model.type(), null);
+                ConfigSyncRegistry.refreshLocalContext(this);
                 state.replaceLocal(declaredDefaults(), null, null);
                 throw failure;
             }
@@ -247,7 +259,8 @@ public final class RegisteredConfig<T> {
 
             ConfigModelValidator.validate(model);
 
-            ConfigGuard<T> guard = new ConfigGuard<>(model);
+            ConfigSyncSchema<T> syncSchema = ConfigSyncSchema.create(model);
+            ConfigGuard<T> guard = new ConfigGuard<>(model, syncSchema);
 
             ConfigEngine<T> engine = new ConfigEngine<>(model, storage, stateCloner, guard::normalize);
             T defaults = engine.initialize();
@@ -270,6 +283,7 @@ public final class RegisteredConfig<T> {
                 model,
                 engine,
                 guard,
+                syncSchema,
                 holderEvents,
                 syncNotifier,
                 exceptionHandler,

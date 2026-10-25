@@ -127,7 +127,7 @@ class ConfigConstraintValidatorTest {
     @Test
     void testRejectsANullNestedObjectRequiredBySync() {
         ConfigGuard<TestFixtures.SyncedConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.SyncedConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.SyncedConfig.class), null);
         TestFixtures.SyncedConfig candidate = new TestFixtures.SyncedConfig();
         candidate.section = null;
 
@@ -150,7 +150,7 @@ class ConfigConstraintValidatorTest {
     @Test
     void testSurfacesConstraintFailuresThroughTheValidationRunner() {
         ConfigGuard<TestFixtures.ConstrainedConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(TestFixtures.ConstrainedConfig.class));
+            new ConfigGuard<>(TestFixtures.model(TestFixtures.ConstrainedConfig.class), null);
         TestFixtures.ConstrainedConfig candidate = new TestFixtures.ConstrainedConfig();
         candidate.hudScale = 99;
 
@@ -173,7 +173,7 @@ class ConfigConstraintValidatorTest {
     @Test
     void testAllowsAnEnumThatDeliberatelyDefaultsToNull() {
         ConfigGuard<NullableEnumConfig> guard =
-            new ConfigGuard<>(TestFixtures.model(NullableEnumConfig.class));
+            new ConfigGuard<>(TestFixtures.model(NullableEnumConfig.class), null);
 
         assertEquals(List.of(), guard.violationsOf(new NullableEnumConfig()));
     }

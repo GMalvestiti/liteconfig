@@ -11,7 +11,6 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
-import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.registry.RegisteredConfig;
@@ -494,15 +493,13 @@ class SyncedConfigTest {
     }
 
     @Test
-    void testCarriesNoValuesForAConfigThatKeepsToItself(@TempDir Path tempDir) {
+    void doesNotCreateSyncStateForLocalOnlyConfigs(@TempDir Path tempDir) {
         RegisteredConfig<TestFixtures.SimpleConfig> config =
             create(TestFixtures.SimpleConfig.class, tempDir);
-        SyncedConfig<TestFixtures.SimpleConfig> synced = SyncedConfig.of(config);
-
-        String before = config.state().published().text;
-        apply(synced, synced.cachedSnapshot().data());
-
-        assertEquals(before, config.state().published().text);
+        ConfigSyncRegistry.register(config);
+        assertNull(config.syncSchema());
+        assertNull(ConfigSyncRegistry.get(config.model().syncId()));
+        assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
     }
 
     @Test
@@ -622,14 +619,19 @@ class SyncedConfigTest {
     @Test
     void restartPolicyParticipatesInTheSchemaFingerprint(@TempDir Path tempDir) throws Exception {
         RegisteredConfig<StrictRestartConfig> config = create(StrictRestartConfig.class, tempDir);
-        var schema = SyncedConfig.class.getDeclaredMethod(
-            "schemaOf", RegisteredConfig.class, List.class, RestartSyncPolicy.class);
-        schema.setAccessible(true);
-
-        long deferred = (long) schema.invoke(null, config, List.of(), RestartSyncPolicy.DEFER);
-        long strict = (long) schema.invoke(null, config, List.of(), RestartSyncPolicy.DISCONNECT);
-
-        assertTrue(deferred != strict);
+        ConfigSyncSchema<StrictRestartConfig> schema = config.syncSchema();
+        StringBuilder shape = new StringBuilder(config.model().typeName()).append("|SERVER|");
+        StringBuilder fields = new StringBuilder();
+        for (SyncedValue value : schema.values()) {
+            fields.append('|').append(value.path()).append(':').append(value.type().getTypeName())
+                .append(':').append(value.schema()).append(':').append(value.restart());
+        }
+        long strict = com.google.common.hash.Hashing.sha256()
+            .hashString(shape + "DISCONNECT" + fields, java.nio.charset.StandardCharsets.UTF_8).asLong();
+        long deferred = com.google.common.hash.Hashing.sha256()
+            .hashString(shape + "DEFER" + fields, java.nio.charset.StandardCharsets.UTF_8).asLong();
+        assertEquals(strict, schema.fingerprint());
+        assertTrue(deferred != schema.fingerprint());
     }
 
     @Test

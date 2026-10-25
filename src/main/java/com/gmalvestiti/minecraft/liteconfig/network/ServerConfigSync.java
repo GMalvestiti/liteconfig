@@ -42,12 +42,13 @@ public final class ServerConfigSync {
     }
 
     public static List<ConfigSyncHandshakeS2CPacket> beginHandshake(boolean joining) {
-        if (ConfigSyncRegistry.values().isEmpty()) {
+        List<SyncedConfig<?>> local = ConfigSyncRegistry.localValues();
+        if (local.isEmpty()) {
             return List.of();
         }
 
         Map<String, ConfigBytes> hashes = new TreeMap<>();
-        for (SyncedConfig<?> synced : ConfigSyncRegistry.values()) {
+        for (SyncedConfig<?> synced : local) {
             if (synced.ready() && synced.locallyActive()) {
                 hashes.put(synced.id(), synced.cachedSnapshot().hash());
             }
