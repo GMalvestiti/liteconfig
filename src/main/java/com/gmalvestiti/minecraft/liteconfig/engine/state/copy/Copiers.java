@@ -88,7 +88,9 @@ final class Copiers {
             if (element != null) {
                 return collection(factory, create(element, codecs));
             }
-        } else if (factory != null && arguments.length == 2) {
+        }
+
+        if (factory != null && arguments.length == 2) {
             Type key = bound(arguments[0]);
             Type value = bound(arguments[1]);
             if (key != null && value != null && create(key, codecs) == SAME) {
