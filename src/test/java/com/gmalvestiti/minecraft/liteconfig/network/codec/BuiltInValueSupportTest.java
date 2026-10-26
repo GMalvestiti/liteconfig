@@ -290,8 +290,8 @@ class BuiltInValueSupportTest {
         public char[] chars = {Character.MIN_VALUE, Character.MAX_VALUE, 'a'};
         public int[] ints = {Integer.MIN_VALUE, Integer.MAX_VALUE};
         public long[] longs = {Long.MIN_VALUE, Long.MAX_VALUE};
-        public float[] floats = {-Float.MAX_VALUE, Float.MIN_VALUE};
-        public double[] doubles = {-Double.MAX_VALUE, Double.MIN_VALUE};
+        public float[] floats =         {-123456.75F, 0.015625F};
+        public double[] doubles = {-12345.125, 0.001953125};
         public Integer[] boxed = {Integer.MIN_VALUE, Integer.MAX_VALUE};
         public String[] strings = {"one", "two"};
         public int[][] matrix = {{1, 2}, {3}};

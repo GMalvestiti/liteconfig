@@ -177,7 +177,8 @@ class ConfigNormalizationTest {
             holder.load();
 
             assertEquals("mysql", holder.data().database);
-            assertEquals("FAST", holder.data().nested.mode);
+            assertEquals("SAFE", holder.data().nested.mode);
+            assertEquals("FAST", holder.pending().orElseThrow().nested.mode);
             Files.writeString(file, "{\"database\":\"postgres\"}");
 
             holder.load();

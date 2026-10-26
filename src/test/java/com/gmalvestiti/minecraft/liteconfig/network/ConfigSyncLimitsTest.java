@@ -335,13 +335,16 @@ class ConfigSyncLimitsTest {
 
     @Test
     void clientAndUnsyncedFieldsDoNotHaveWireSizeLimits(@TempDir Path directory) {
-        try (ConfigHolder<ClientPayloadConfig> client = holder(ClientPayloadConfig.class, directory);
-             ConfigHolder<LocalPayloadConfig> local = holder(LocalPayloadConfig.class, directory)) {
-            assertTrue(client.update(value ->
-                value.first = new SizedValue(ConfigSyncProtocol.MAX_CONFIG_BYTES * 2)).accepted());
-            assertTrue(local.update(value ->
-                value.first = new SizedValue(ConfigSyncProtocol.MAX_CONFIG_BYTES * 2)).accepted());
-            assertTrue(ConfigSyncRegistry.localValues().isEmpty());
+        try (var platform = org.mockito.Mockito.mockStatic(com.gmalvestiti.minecraft.liteconfig.platform.Platform.class)) {
+            platform.when(com.gmalvestiti.minecraft.liteconfig.platform.Platform::isClient).thenReturn(true);
+            try (ConfigHolder<ClientPayloadConfig> client = holder(ClientPayloadConfig.class, directory);
+                 ConfigHolder<LocalPayloadConfig> local = holder(LocalPayloadConfig.class, directory)) {
+                assertTrue(client.update(value ->
+                    value.first = new SizedValue(ConfigSyncProtocol.MAX_CONFIG_BYTES * 2)).accepted());
+                assertTrue(local.update(value ->
+                    value.first = new SizedValue(ConfigSyncProtocol.MAX_CONFIG_BYTES * 2)).accepted());
+                assertTrue(ConfigSyncRegistry.localValues().isEmpty());
+            }
         }
     }
 

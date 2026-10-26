@@ -7,7 +7,9 @@ import com.gmalvestiti.minecraft.liteconfig.platform.CommonClientPlatform;
 import com.gmalvestiti.minecraft.liteconfig.platform.CommonServerPlatform;
 import com.gmalvestiti.minecraft.liteconfig.platform.ConnectionType;
 import com.gmalvestiti.minecraft.liteconfig.shared.TranslationKey;
+import net.minecraft.SharedConstants;
 import net.minecraft.client.Minecraft;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -22,6 +24,11 @@ import static org.mockito.Mockito.mock;
 
 /** Mutable fake runtime for tests that exercise one service at a time. */
 public final class TestSyncPlatform {
+    static {
+        SharedConstants.tryDetectVersion();
+        Bootstrap.bootStrap();
+    }
+
     private static FakeClient client = new FakeClient(Runnable::run);
     private static FakeServer server = new FakeServer(Runnable::run);
 
