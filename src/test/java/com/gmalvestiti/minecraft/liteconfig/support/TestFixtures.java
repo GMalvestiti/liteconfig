@@ -157,6 +157,18 @@ public final class TestFixtures {
         public int value = 1;
     }
 
+    @Config(name = "indented-comments", comment = {"Header", "    indented class line"})
+    public static class IndentedCommentConfig {
+        @Entry(comment = {"Field", "    indented field line"})
+        public int value = 1;
+    }
+
+    @Config(name = "indented-comments-toml", format = ConfigFormat.TOML, comment = {"Header", "    indented class line"})
+    public static class IndentedCommentTomlConfig {
+        @Entry(comment = {"Field", "    indented field line"})
+        public int value = 1;
+    }
+
     @Config(name = "toml-fixture", format = ConfigFormat.TOML, comment = "A TOML-backed fixture.")
     public static class TomlConfig {
         @Entry(comment = "How loud, from 0 to 10.")

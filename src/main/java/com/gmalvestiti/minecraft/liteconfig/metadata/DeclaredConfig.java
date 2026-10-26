@@ -155,6 +155,5 @@ public final class DeclaredConfig {
         Optional<String> listenerProblem,
         ConfigConstraints constraints,
         List<String> problems
-    ) {
-    }
+    ) {}
 }

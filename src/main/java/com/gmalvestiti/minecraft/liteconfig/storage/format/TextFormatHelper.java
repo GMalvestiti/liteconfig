@@ -15,23 +15,27 @@ final class TextFormatHelper {
 
     private TextFormatHelper() {}
 
-    static DeclaredConfig.Property propertyOf(Class<?> owner, String key) {
+    static DeclaredConfig.Property property(Class<?> owner, String key) {
         return owner == null ? null : DeclaredConfig.of(owner).property(key);
     }
 
-    static String commentOfClass(Class<?> type) {
-        return type == null ? null : join(DeclaredConfig.of(type).comment());
+    static int version(Class<?> type) {
+        return type == null ? 0 : DeclaredConfig.of(type).version();
     }
 
-    static String commentOf(DeclaredConfig.Property property) {
+    static String comment(Class<?> type) {
+        return type == null ? null : block(DeclaredConfig.of(type).comment());
+    }
+
+    static String comment(DeclaredConfig.Property property) {
         if (property == null) {
             return null;
         }
 
-        return property.comment().isEmpty() ? commentOfClass(property.type()) : join(property.comment());
+        return property.comment().isEmpty() ? comment(property.type()) : block(property.comment());
     }
 
-    private static String join(List<String> lines) {
+    private static String block(List<String> lines) {
         return lines.isEmpty() ? null : String.join("\n", lines);
     }
 }

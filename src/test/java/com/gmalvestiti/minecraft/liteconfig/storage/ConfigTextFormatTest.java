@@ -141,6 +141,24 @@ class ConfigTextFormatTest {
     }
 
     @Test
+    void testKeepsLeadingSpacesInComments(@TempDir Path tempDir) throws IOException {
+        ConfigStorage<TestFixtures.IndentedCommentConfig> json =
+            TestFixtures.storage(tempDir, TestFixtures.IndentedCommentConfig.class);
+        ConfigStorage<TestFixtures.IndentedCommentTomlConfig> toml =
+            TestFixtures.storage(tempDir, TestFixtures.IndentedCommentTomlConfig.class);
+
+        json.write(new TestFixtures.IndentedCommentConfig());
+        toml.write(new TestFixtures.IndentedCommentTomlConfig());
+        String jsonText = Files.readString(tempDir.resolve("mod").resolve("indented-comments.json5"));
+        String tomlText = Files.readString(tempDir.resolve("mod").resolve("indented-comments-toml.toml"));
+
+        assertTrue(jsonText.contains("*     indented class line"), jsonText);
+        assertTrue(jsonText.contains("*     indented field line"), jsonText);
+        assertTrue(tomlText.contains("#    indented class line"), tomlText);
+        assertTrue(tomlText.contains("#    indented field line"), tomlText);
+    }
+
+    @Test
     void testExcludesFieldsAnnotatedWithConfigIgnore(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.IgnoredFieldConfig> storage =
             TestFixtures.storage(tempDir, TestFixtures.IgnoredFieldConfig.class);

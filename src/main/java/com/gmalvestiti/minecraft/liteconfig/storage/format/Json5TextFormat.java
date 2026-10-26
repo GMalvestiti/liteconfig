@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.storage.format;
 
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
+import com.gmalvestiti.minecraft.liteconfig.migration.ConfigMigrations;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -38,8 +39,15 @@ final class Json5TextFormat implements ConfigTextFormat {
 
     @Override
     public String writeTree(JsonObject tree, Class<?> type) {
-        Json5Element root = toJson5(tree, type);
-        comment(root, TextFormatHelper.commentOfClass(type));
+        Json5Object root = new Json5Object();
+        int version = TextFormatHelper.version(type);
+
+        if (version > 0) {
+            root.add(ConfigMigrations.VERSION_KEY, Json5Primitive.fromNumber(version));
+        }
+
+        fillObject(root, tree, type, version > 0);
+        comment(root, TextFormatHelper.comment(type));
 
         try {
             return JSON5.serialize(root);
@@ -48,19 +56,26 @@ final class Json5TextFormat implements ConfigTextFormat {
         }
     }
 
+    private void fillObject(Json5Object target, JsonObject source, Class<?> owner, boolean skipVersion) {
+        for (Map.Entry<String, JsonElement> property : source.entrySet()) {
+            String key = property.getKey();
+            if (skipVersion && ConfigMigrations.VERSION_KEY.equals(key)) {
+                continue;
+            }
+
+            DeclaredConfig.Property declared = TextFormatHelper.property(owner, key);
+            Class<?> nested = declared == null ? null : declared.type();
+            Json5Element converted = toJson5(property.getValue(), nested);
+
+            comment(converted, TextFormatHelper.comment(declared));
+            target.add(key, converted);
+        }
+    }
+
     private Json5Element toJson5(JsonElement element, Class<?> owner) {
         if (element.isJsonObject()) {
             Json5Object object = new Json5Object();
-            for (Map.Entry<String, JsonElement> property : element.getAsJsonObject().entrySet()) {
-                String key = property.getKey();
-
-                DeclaredConfig.Property declared = TextFormatHelper.propertyOf(owner, key);
-                Class<?> nested = declared == null ? null : declared.type();
-                Json5Element converted = toJson5(property.getValue(), nested);
-
-                comment(converted, TextFormatHelper.commentOf(declared));
-                object.add(key, converted);
-            }
+            fillObject(object, element.getAsJsonObject(), owner, false);
             return object;
         }
 

@@ -44,10 +44,11 @@ public interface ConfigTextFormat {
     JsonObject readTree(String text);
 
     /**
-     * Renders a tree as the text to write to disk, comments included.
+     * Renders a tree as the text to write to disk, comments included. A versioned config's
+     * {@code configVersion} is written first.
      *
      * @param tree the values to write; never {@code null}
-     * @param type the config class the tree came from, which supplies the comments; never {@code null}
+     * @param type the config class the tree came from, which supplies the comments and version; never {@code null}
      * @return the complete file content; never {@code null}
      * @throws RuntimeException when the tree cannot be rendered
      */

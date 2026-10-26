@@ -18,7 +18,6 @@ import java.util.Comparator;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -71,26 +70,6 @@ public final class ConfigMigrations {
         }
 
         return tree;
-    }
-
-    /**
-     * Writes the declared version into {@code tree}, ahead of the config's own keys.
-     */
-    public JsonObject stamp(JsonObject tree) {
-        if (declaredVersion <= 0) {
-            return tree;
-        }
-
-        JsonObject stamped = new JsonObject();
-        stamped.addProperty(VERSION_KEY, declaredVersion);
-
-        for (Map.Entry<String, JsonElement> property : tree.entrySet()) {
-            if (!VERSION_KEY.equals(property.getKey())) {
-                stamped.add(property.getKey(), property.getValue());
-            }
-        }
-
-        return stamped;
     }
 
     private void runStep(ConfigData data, int from, ConfigScope scope) {

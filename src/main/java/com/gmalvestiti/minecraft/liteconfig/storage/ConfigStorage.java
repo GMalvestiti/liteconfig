@@ -142,8 +142,7 @@ public final class ConfigStorage<T> {
     }
 
     private String render(T data) {
-        JsonObject tree = ConfigMigrations.of(configType).stamp(ConfigSerialization.toTree(data).getAsJsonObject());
-        return format.writeTree(tree, configType);
+        return format.writeTree(ConfigSerialization.toTree(data).getAsJsonObject(), configType);
     }
 
     public PreparedWrite prepareRestartWrite(T data) {

@@ -5,6 +5,7 @@ import com.electronwill.nightconfig.core.UnmodifiableConfig;
 import com.electronwill.nightconfig.toml.TomlParser;
 import com.electronwill.nightconfig.toml.TomlWriter;
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
+import com.gmalvestiti.minecraft.liteconfig.migration.ConfigMigrations;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
@@ -32,33 +33,39 @@ final class TomlTextFormat implements ConfigTextFormat {
     @Override
     public String writeTree(JsonObject tree, Class<?> type) {
         CommentedConfig config = CommentedConfig.inMemory();
-        fill(config, tree, type);
-        return header(TextFormatHelper.commentOfClass(type)) + new TomlWriter().writeToString(config);
+        int version = TextFormatHelper.version(type);
+
+        if (version > 0) {
+            config.set(List.of(ConfigMigrations.VERSION_KEY), version);
+        }
+
+        fill(config, tree, type, version > 0);
+        return header(TextFormatHelper.comment(type)) + new TomlWriter().writeToString(config);
     }
 
-    private void fill(CommentedConfig config, JsonObject object, Class<?> owner) {
+    private void fill(CommentedConfig config, JsonObject object, Class<?> owner, boolean skipVersion) {
         for (Map.Entry<String, JsonElement> property : object.entrySet()) {
             JsonElement value = property.getValue();
-            if (value.isJsonNull()) {
+            String key = property.getKey();
+            if (value.isJsonNull() || skipVersion && ConfigMigrations.VERSION_KEY.equals(key)) {
                 continue;
             }
 
-            String key = property.getKey();
             List<String> path = List.of(key);
-            DeclaredConfig.Property declared = TextFormatHelper.propertyOf(owner, key);
+            DeclaredConfig.Property declared = TextFormatHelper.property(owner, key);
 
             if (value.isJsonObject()) {
                 CommentedConfig table = config.createSubConfig();
 
                 Class<?> nested = declared == null ? null : declared.type();
-                fill(table, value.getAsJsonObject(), nested);
+                fill(table, value.getAsJsonObject(), nested, false);
 
                 config.set(path, table);
             } else {
                 config.set(path, toTomlValue(value));
             }
 
-            String comment = TextFormatHelper.commentOf(declared);
+            String comment = TextFormatHelper.comment(declared);
             if (comment != null) {
                 config.setComment(path, comment);
             }
@@ -117,7 +124,7 @@ final class TomlTextFormat implements ConfigTextFormat {
     private CommentedConfig toTomlTable(JsonObject object) {
         CommentedConfig table = CommentedConfig.inMemory();
         // Nothing here has a declaring field, so nothing inside it can be commented.
-        fill(table, object, null);
+        fill(table, object, null, false);
         return table;
     }
 
