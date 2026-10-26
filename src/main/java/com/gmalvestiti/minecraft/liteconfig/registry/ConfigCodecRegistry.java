@@ -15,13 +15,13 @@ import net.minecraft.network.codec.StreamCodec;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
-import java.util.Collections;
+import java.lang.reflect.ParameterizedType;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.WeakHashMap;
 
 /**
  * Codec registrations for custom config value types.
@@ -39,7 +39,7 @@ import java.util.WeakHashMap;
 public final class ConfigCodecRegistry {
 
     private volatile Map<Type, Registration> registrations = Map.of();
-    private final Set<Type> plannedTypes = Collections.newSetFromMap(new WeakHashMap<>());
+    private final Set<Type> plannedTypes = new HashSet<>();
     private volatile int generation;
 
     /**
@@ -167,7 +167,13 @@ public final class ConfigCodecRegistry {
      * Prevents a type's serialization role from changing after a field plan has classified it.
      */
     public synchronized void lockForPlanning(Type type) {
-        plannedTypes.add(requireType(type));
+        Type planned = requireType(type);
+
+        if (plannedTypes.add(planned) && planned instanceof ParameterizedType parameterized) {
+            for (Type argument : parameterized.getActualTypeArguments()) {
+                lockForPlanning(argument);
+            }
+        }
     }
 
     /**

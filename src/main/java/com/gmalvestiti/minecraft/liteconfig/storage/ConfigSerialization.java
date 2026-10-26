@@ -12,7 +12,6 @@ import com.google.gson.JsonElement;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Type;
-import java.lang.ref.WeakReference;
 
 public final class ConfigSerialization {
 
@@ -54,16 +53,10 @@ public final class ConfigSerialization {
 
     private static Gson gson() {
         ConfigCodecRegistry codecs = LiteConfig.codecs();
-
-        int generation = codecs.generation();
         Bound currentBound = bound;
 
-        if (currentBound != null && currentBound.generation() == generation) {
-            Gson current = currentBound.gson().get();
-
-            if (current != null) {
-                return current;
-            }
+        if (currentBound != null && currentBound.generation() == codecs.generation()) {
+            return currentBound.gson();
         }
 
         return bind(codecs);
@@ -71,15 +64,10 @@ public final class ConfigSerialization {
 
     private static synchronized Gson bind(ConfigCodecRegistry codecs) {
         int generation = codecs.generation();
-
         Bound currentBound = bound;
 
         if (currentBound != null && currentBound.generation() == generation) {
-            Gson current = currentBound.gson().get();
-
-            if (current != null) {
-                return current;
-            }
+            return currentBound.gson();
         }
 
         Gson gson = codecs.configure(new GsonBuilder()
@@ -91,10 +79,10 @@ public final class ConfigSerialization {
             .serializeNulls()
             .create();
 
-        bound = new Bound(generation, new WeakReference<>(gson));
+        bound = new Bound(generation, gson);
 
         return gson;
     }
 
-    private record Bound(int generation, WeakReference<Gson> gson) {}
+    private record Bound(int generation, Gson gson) {}
 }
