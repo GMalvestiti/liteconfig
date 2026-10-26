@@ -6,7 +6,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.FailurePolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.StateCloner;
-import com.gmalvestiti.minecraft.liteconfig.engine.state.StateClonerImplementation;
+import com.gmalvestiti.minecraft.liteconfig.engine.state.copy.DefaultStateCloner;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -156,9 +156,9 @@ public @interface Config {
     /**
      * Chooses how live config state is copied.
      *
-     * <p>The default performs a complete JSON tree round-trip. A custom implementation can avoid
-     * that overhead, but it must expose a no-argument constructor and return fully independent
-     * copies:
+     * <p>The default copies fields directly, sharing immutable values and rebuilding mutable ones;
+     * codec-backed and unusual types are copied through JSON. A custom implementation must expose
+     * a no-argument constructor and return fully independent copies:
      *
      * <pre>{@code
      * @Config(name = "mymod", stateCloner = MyModConfigCloner.class)
@@ -167,7 +167,7 @@ public @interface Config {
      *
      * @return the cloner implementation shared by every holder of this config
      */
-    Class<? extends StateCloner<?>> stateCloner() default StateClonerImplementation.class;
+    Class<? extends StateCloner<?>> stateCloner() default DefaultStateCloner.class;
 
     /**
      * Chooses how load, parse, migration, and load-time validation failures behave.

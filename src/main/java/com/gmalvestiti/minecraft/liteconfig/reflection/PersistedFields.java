@@ -24,6 +24,7 @@ public final class PersistedFields {
             List<Field> fields = new ArrayList<>();
             List<Field> inaccessible = new ArrayList<>();
             List<Field> finalFields = new ArrayList<>();
+            List<Field> ignored = new ArrayList<>();
 
             for (Class<?> owner = type; owner != null && owner != Object.class; owner = owner.getSuperclass()) {
 
@@ -31,7 +32,11 @@ public final class PersistedFields {
                 Arrays.sort(declared, Comparator.comparing(Field::getName));
 
                 for (Field field : declared) {
-                    if (isPersisted(field)) {
+                    if (isIgnored(field)) {
+                        if (!type.isRecord() && field.trySetAccessible()) {
+                            ignored.add(field);
+                        }
+                    } else if (isPersisted(field)) {
                         if (!field.trySetAccessible()) {
                             inaccessible.add(field);
                         }
@@ -45,7 +50,8 @@ public final class PersistedFields {
                 }
             }
 
-            return new Resolution(List.copyOf(fields), List.copyOf(inaccessible), List.copyOf(finalFields));
+            return new Resolution(List.copyOf(fields), List.copyOf(inaccessible), List.copyOf(finalFields),
+                List.copyOf(ignored));
         }
     };
 
@@ -61,6 +67,10 @@ public final class PersistedFields {
 
     public static List<Field> finalFields(Class<?> type) {
         return CACHE.get(type).finalFields();
+    }
+
+    public static List<Field> ignored(Class<?> type) {
+        return CACHE.get(type).ignored();
     }
 
     public static boolean descendable(Type type) {
@@ -92,5 +102,12 @@ public final class PersistedFields {
             && field.getAnnotation(Ignore.class) == null;
     }
 
-    private record Resolution(List<Field> fields, List<Field> inaccessible, List<Field> finalFields) {}
+    private static boolean isIgnored(Field field) {
+        return !Modifier.isStatic(field.getModifiers())
+            && !field.isSynthetic()
+            && field.getAnnotation(Ignore.class) != null;
+    }
+
+    private record Resolution(List<Field> fields, List<Field> inaccessible, List<Field> finalFields,
+                              List<Field> ignored) {}
 }

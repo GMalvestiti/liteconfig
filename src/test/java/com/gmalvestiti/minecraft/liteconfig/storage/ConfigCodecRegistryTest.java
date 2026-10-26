@@ -228,7 +228,7 @@ class ConfigCodecRegistryTest {
 
         assertTrue(LiteConfig.codecs().find(NetworkOnlyValue.class).isEmpty());
         assertTrue(LiteConfig.codecs().findStream(NetworkOnlyValue.class).isPresent());
-        assertEquals(7, ConfigSerialization.copy(new NetworkOnlyValue(7), NetworkOnlyValue.class).value());
+        assertEquals(7, ConfigSerialization.<NetworkOnlyValue>copy(new NetworkOnlyValue(7), NetworkOnlyValue.class).value());
     }
 
     @Test

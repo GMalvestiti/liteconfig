@@ -214,7 +214,7 @@ final class SyncedConfig<T> {
                 caches.stage(prepared.store, prepared.payload);
 
                 if (this.config.pathResolver().type() == ConfigType.SERVER && carriesRestartValues
-                    && (prepared.restartRequired || this.config.state().pending().isPresent())) {
+                    && (prepared.restartRequired || this.config.state().hasPending())) {
 
                     T local = this.config.engine().restartFileState(this.config.declaredDefaults());
                     this.config.guard().normalize(local);

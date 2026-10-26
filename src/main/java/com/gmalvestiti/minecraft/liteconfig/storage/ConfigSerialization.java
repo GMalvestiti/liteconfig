@@ -11,6 +11,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Type;
 import java.lang.ref.WeakReference;
 
 public final class ConfigSerialization {
@@ -46,9 +47,9 @@ public final class ConfigSerialization {
         return gson().fromJson(tree, type);
     }
 
-    public static <V> V copy(V source, Class<V> type) {
+    public static <V> V copy(Object source, Type type) {
         Gson gson = gson();
-        return gson.fromJson(gson.toJsonTree(source), type);
+        return gson.fromJson(gson.toJsonTree(source, type), type);
     }
 
     private static Gson gson() {

@@ -6,8 +6,11 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
  * Copies config state without sharing mutable nested objects.
  *
  * <p>LiteConfig copies for caller-owned snapshots, update and sync candidates, the separately
- * published state, and {@code beforeSave} isolation. The default is a JSON round-trip; declare a
- * hand-written cloner on {@code @Config} when copying is a measured hot path:
+ * published state, and {@code beforeSave} isolation. The default copies field by field: immutable
+ * values such as strings, enums and boxed primitives are shared, while arrays, collections and
+ * nested config objects are rebuilt. {@code @Ignore} fields keep their value by reference. Types
+ * with a registered codec, and types it cannot copy directly, go through their JSON form instead.
+ * Declare a hand-written cloner on {@code @Config} when copying is still a measured hot path:
  *
  * <pre>{@code
  * public final class MyModConfigCloner implements StateCloner<MyModConfig> {

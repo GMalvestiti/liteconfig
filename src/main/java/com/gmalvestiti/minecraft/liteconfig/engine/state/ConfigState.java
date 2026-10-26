@@ -76,6 +76,10 @@ public final class ConfigState<T> {
         return pending == null ? Optional.empty() : Optional.of(copy(pending));
     }
 
+    public boolean hasPending() {
+        return snapshot.pending() != null;
+    }
+
     public boolean pendingAt(Path path) {
         Snapshot<T> current = snapshot;
         return current.pending() != null
