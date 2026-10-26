@@ -80,19 +80,10 @@ public final class RestartSyncStore {
             PendingSyncTransaction envelope = readPendingTransaction(stagedPath);
 
             if (envelope != null) {
-                boolean selected = committed(envelope.marker());
-                if (normalFile && selected) {
-                    materialize(envelope.marker());
-                }
-                return selected ? envelope.candidate() : envelope.previous();
+                return resolve(envelope);
             }
 
-            long length = Files.size(path);
-            if (!normalFile && length > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
-                throw scope.exception(ConfigError.SYNC_APPLY_FAILED, path, "restart cache exceeds size limit");
-            }
-
-            return ConfigBytes.of(Files.readAllBytes(path));
+            return readPlain();
         } catch (NoSuchFileException | NotDirectoryException absent) {
             return null;
         } catch (IOException failure) {
@@ -100,9 +91,29 @@ public final class RestartSyncStore {
         }
     }
 
+    private ConfigBytes readPlain() throws IOException {
+        try {
+            if (!normalFile && Files.size(path) > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
+                throw scope.exception(ConfigError.SYNC_APPLY_FAILED, path, "restart cache exceeds size limit");
+            }
+
+            return ConfigBytes.of(Files.readAllBytes(path));
+        } catch (NoSuchFileException | NotDirectoryException absent) {
+            return null;
+        }
+    }
+
+    private ConfigBytes resolve(PendingSyncTransaction envelope) throws IOException {
+        boolean selected = committed(envelope.marker());
+        if (normalFile && selected) {
+            materialize(envelope);
+        }
+        return selected ? envelope.candidate() : envelope.previous();
+    }
+
     void write(ConfigBytes bytes) {
         try {
-            if (readPendingTransaction(stagedPath) != null) {
+            if (Files.exists(stagedPath)) {
                 Transaction transaction = new Transaction();
                 transaction.stage(this, bytes);
                 transaction.commit();
@@ -114,19 +125,20 @@ public final class RestartSyncStore {
                 return;
             }
 
-            requireSize(bytes);
-            if (!normalFile && bytes.size() > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
-                throw new IOException("Server payload cache exceeds size limit");
-            }
-
+            requireSize(bytes, normalFile);
             atomicWrite(path, bytes.bytes());
         } catch (IOException failure) {
             throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
         }
     }
 
-    private static void requireSize(ConfigBytes bytes) throws IOException {
-        if (bytes != null && bytes.size() > MAX_FILE_BYTES) {
+    private static void requireSize(ConfigBytes bytes, boolean normalFile) throws IOException {
+        if (bytes == null) {
+            return;
+        }
+
+        int limit = normalFile ? MAX_FILE_BYTES : ConfigSyncProtocol.MAX_CONFIG_BYTES;
+        if (bytes.size() > limit) {
             throw new IOException("Restart cache exceeds size limit");
         }
     }
@@ -178,7 +190,6 @@ public final class RestartSyncStore {
     }
 
     private static void writeBytes(DataOutputStream output, ConfigBytes bytes) throws IOException {
-        requireSize(bytes);
         output.writeInt(bytes == null ? -1 : bytes.size());
         if (bytes != null) {
             output.write(bytes.bytes());
@@ -270,13 +281,8 @@ public final class RestartSyncStore {
         }
     }
 
-    private void materialize(Path marker) {
+    private void materialize(PendingSyncTransaction envelope) {
         try {
-            PendingSyncTransaction envelope = readPendingTransaction(stagedPath);
-            if (envelope == null || !envelope.marker().equals(marker)) {
-                return;
-            }
-
             if (envelope.candidate() == null) {
                 Files.deleteIfExists(path);
             } else {
@@ -285,7 +291,7 @@ public final class RestartSyncStore {
 
             if (normalFile) {
                 Files.deleteIfExists(stagedPath);
-                cleanMarker(marker);
+                cleanMarker(envelope.marker());
             }
         } catch (IOException | RuntimeException failure) {
             scope.logError("Failed to materialize committed restart-sync payload " + path, failure);
@@ -302,61 +308,55 @@ public final class RestartSyncStore {
         private boolean committed;
 
         void stage(RestartSyncStore store, ConfigBytes candidate) {
+            try {
+                PendingSyncTransaction old = readPendingTransaction(store.stagedPath);
+                stage(store, candidate, old == null ? store.readPlain() : store.resolve(old), old);
+            } catch (IOException failure) {
+                throw store.scope.exception(ConfigError.IO_SAVE_FAILURE, failure, store.stagedPath);
+            }
+        }
+
+        private void stage(
+            RestartSyncStore store, ConfigBytes candidate, ConfigBytes previous, PendingSyncTransaction old
+        ) throws IOException {
             if (committed) {
                 throw new IllegalStateException("Restart cache transaction already committed");
             }
 
-            try {
-                requireSize(candidate);
-                if (!store.normalFile && candidate != null && candidate.size() > ConfigSyncProtocol.MAX_CONFIG_BYTES) {
-                    throw new IOException("Server payload cache exceeds size limit");
+            requireSize(candidate, store.normalFile);
+
+            if (Objects.equals(previous, candidate)) {
+                return;
+            }
+
+            if (marker == null) {
+                marker = store.stagedPath.getParent().resolve(".transactions")
+                    .resolve(UUID.randomUUID() + ".commit").toAbsolutePath().normalize();
+                scope = store.scope;
+            }
+
+            if (store.normalFile) {
+                Files.createDirectories(store.path.getParent());
+                if (Files.isDirectory(store.path)
+                    || (Files.exists(store.path) ? !Files.isWritable(store.path) : !Files.isWritable(store.path.getParent()))) {
+                    throw new IOException("Restart selection target is not writable: " + store.path);
                 }
+            }
 
-                ConfigBytes previous = store.read();
-                if (Objects.equals(previous, candidate)) {
-                    return;
-                }
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 
-                if (marker == null) {
-                    marker = store.stagedPath.getParent().resolve(".transactions")
-                        .resolve(UUID.randomUUID() + ".commit").toAbsolutePath().normalize();
-                    scope = store.scope;
-                }
+            try (DataOutputStream output = new DataOutputStream(bytes)) {
+                output.writeInt(TRANSACTION_VERSION);
+                output.writeUTF(marker.toString());
+                writeBytes(output, previous);
+                writeBytes(output, candidate);
+            }
 
-                if (store.normalFile) {
-                    if (Files.isDirectory(store.path)
-                        || (Files.exists(store.path) && !Files.isWritable(store.path))) {
-                        throw new IOException("Restart selection target is not writable: " + store.path);
-                    }
+            atomicWrite(store.stagedPath, bytes.toByteArray());
+            participants.put(store.stagedPath.toAbsolutePath().normalize(), store);
 
-                    Files.createDirectories(store.path.getParent());
-                    Path probe = store.path.resolveSibling(store.path.getFileName() + "." + UUID.randomUUID() + ".probe");
-
-                    try {
-                        atomicWrite(probe, candidate.bytes());
-                    } finally {
-                        Files.deleteIfExists(probe);
-                    }
-                }
-
-                PendingSyncTransaction old = readPendingTransaction(store.stagedPath);
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-
-                try (DataOutputStream output = new DataOutputStream(bytes)) {
-                    output.writeInt(TRANSACTION_VERSION);
-                    output.writeUTF(marker.toString());
-                    writeBytes(output, previous);
-                    writeBytes(output, candidate);
-                }
-
-                atomicWrite(store.stagedPath, bytes.toByteArray());
-                participants.put(store.stagedPath.toAbsolutePath().normalize(), store);
-
-                if (old != null && !old.marker().equals(marker)) {
-                    store.cleanMarker(old.marker());
-                }
-            } catch (IOException failure) {
-                throw store.scope.exception(ConfigError.IO_SAVE_FAILURE, failure, store.stagedPath);
+            if (old != null && !old.marker().equals(marker)) {
+                store.cleanMarker(old.marker());
             }
         }
 
@@ -370,10 +370,6 @@ public final class RestartSyncStore {
             }
 
             for (RestartSyncStore store : participants.values()) {
-                if (!store.normalFile) {
-                    continue;
-                }
-
                 try {
                     PendingSyncTransaction envelope = readPendingTransaction(store.stagedPath);
                     if (envelope != null && envelope.marker().equals(marker)) {
@@ -384,7 +380,7 @@ public final class RestartSyncStore {
                         }
                     }
                 } catch (IOException failure) {
-                    store.scope.logError("Failed to clean aborted restart-selection journal " + store.stagedPath, failure);
+                    store.scope.logError("Failed to clean aborted restart-sync journal " + store.stagedPath, failure);
                 }
             }
         }
@@ -407,9 +403,19 @@ public final class RestartSyncStore {
 
                 atomicWrite(marker, bytes.toByteArray());
                 committed = true;
-                participants.values().forEach(store -> store.materialize(marker));
             } catch (IOException failure) {
                 throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, marker);
+            }
+
+            for (RestartSyncStore store : participants.values()) {
+                try {
+                    PendingSyncTransaction envelope = readPendingTransaction(store.stagedPath);
+                    if (envelope != null && envelope.marker().equals(marker)) {
+                        store.materialize(envelope);
+                    }
+                } catch (IOException failure) {
+                    store.scope.logError("Failed to materialize committed restart-sync payload " + store.path, failure);
+                }
             }
         }
     }

@@ -37,6 +37,7 @@ public final class ConfigStorage<T> {
     private final ConfigPathResolver pathResolver;
     private final ConfigTextFormat format;
     private final ConfigScope scope;
+    private volatile CachedStore cachedStore;
 
     public ConfigStorage(Class<T> configType, ConfigPathResolver pathResolver, ConfigScope scope) {
         this.configType = Objects.requireNonNull(configType, "configType");
@@ -45,6 +46,20 @@ public final class ConfigStorage<T> {
         this.format = ConfigTextFormat.of(ConfigFormat.of(configType));
         this.scope = Objects.requireNonNull(scope, "scope");
     }
+
+    private RestartSyncStore store(Path path) {
+        CachedStore cached = this.cachedStore;
+        Path base = pathResolver.baseDirectory();
+
+        if (cached == null || !cached.path().equals(path) || !cached.base().equals(base)) {
+            cached = new CachedStore(base, path, RestartSyncStore.forFile(base, path, scope));
+            this.cachedStore = cached;
+        }
+
+        return cached.store();
+    }
+
+    private record CachedStore(Path base, Path path, RestartSyncStore store) {}
 
     public T read() {
         Path path = pathResolver.currentPathForConfig(configType);
@@ -56,7 +71,7 @@ public final class ConfigStorage<T> {
             path = pathResolver.restartPathForConfig(configType);
         }
 
-        byte[] bytes = RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope).readFile();
+        byte[] bytes = store(path).readFile();
         if (bytes == null) {
             return null;
         }
@@ -104,7 +119,7 @@ public final class ConfigStorage<T> {
             return;
         }
 
-        RestartSyncStore journal = RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope);
+        RestartSyncStore journal = store(path);
         if (journal.journaled()) {
             try {
                 journal.writeFile(render(data).getBytes(StandardCharsets.UTF_8));
@@ -134,7 +149,7 @@ public final class ConfigStorage<T> {
     public PreparedWrite prepareRestartWrite(T data) {
         Path path = pathResolver.restartPathForConfig(configType);
         try {
-            return new PreparedWrite(RestartSyncStore.forFile(pathResolver.baseDirectory(), path, scope),
+            return new PreparedWrite(store(path),
                 render(data).getBytes(StandardCharsets.UTF_8));
         } catch (RuntimeException failure) {
             throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
