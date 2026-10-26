@@ -28,7 +28,7 @@ final class SyncedConfig<T> {
     private final RestartSyncPolicy restartSyncPolicy;
     private final ConfigSyncSchema<T> syncSchema;
     private final boolean carriesRestartValues;
-    private Snapshot cachedSnapshot;
+    private volatile Snapshot cachedSnapshot;
     private T snapshotState;
     private ConfigBytes broadcastHash;
     private RestartSyncStore restartStore;
@@ -67,9 +67,7 @@ final class SyncedConfig<T> {
     }
 
     boolean ready() {
-        synchronized (this.config.state().operationLock()) {
-            return this.cachedSnapshot != null;
-        }
+        return this.cachedSnapshot != null;
     }
 
     boolean locallyActive() {
@@ -87,7 +85,7 @@ final class SyncedConfig<T> {
     }
 
     private Snapshot snapshot(T state) {
-        byte[] data = encode(state);
+        byte[] data = syncSchema.encode(state);
         return new Snapshot(ConfigBytes.trusted(data), ConfigBytes.trusted(hash(data)));
     }
 
@@ -130,10 +128,6 @@ final class SyncedConfig<T> {
             && ConfigBytes.trusted(hash(persisted.bytes())).equals(expectedHash) ? persisted : null;
     }
 
-    private byte[] encode(T state) {
-        return syncSchema.encode(state);
-    }
-
     Prepared<T> prepare(ConfigBytes payload) {
         cachedSnapshot();
         ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
@@ -155,8 +149,11 @@ final class SyncedConfig<T> {
 
             this.config.guard().validate(active);
             boolean restartRequired = changesRestartValues(fieldAccess, active, candidate);
+            boolean stagesRestartFile = this.config.pathResolver().type() == ConfigType.SERVER
+                && this.carriesRestartValues
+                && (restartRequired || this.config.state().hasPending());
 
-            return new Prepared<>(this, current, candidate, active, restartRequired,
+            return new Prepared<>(this, current, candidate, active, restartRequired, stagesRestartFile,
                 this.config.state().checkpoint(), restartStore(), payload);
         });
     }
@@ -192,12 +189,10 @@ final class SyncedConfig<T> {
 
     private boolean rollbackCommitted(Prepared<T> prepared) {
         return this.config.writing(() -> {
-            if (this.config.state().canonical() != prepared.active) {
+            if (!restoreIfPublished(prepared)) {
                 return false;
             }
 
-            this.config.state().restore(prepared.beforeSnapshot);
-            this.broadcastHash = this.cachedSnapshot().hash();
             prepared.applied = null;
 
             return true;
@@ -205,42 +200,16 @@ final class SyncedConfig<T> {
     }
 
     private boolean commit(Prepared<T> prepared, RestartSyncStore.Transaction caches) {
+        if (this.config.state().canonical() != prepared.before) {
+            return false;
+        }
+
+        if (!this.config.exceptionHandler().onWrite(() -> stage(prepared, caches)).completed()) {
+            return false;
+        }
+
         return this.config.writing(() -> {
             if (this.config.state().canonical() != prepared.before) {
-                return false;
-            }
-
-            if (!this.config.exceptionHandler().onWrite(() -> {
-                caches.stage(prepared.store, prepared.payload);
-
-                if (this.config.pathResolver().type() == ConfigType.SERVER && carriesRestartValues
-                    && (prepared.restartRequired || this.config.state().hasPending())) {
-
-                    T local = this.config.engine().restartFileState(this.config.declaredDefaults());
-                    this.config.guard().normalize(local);
-
-                    if (!changesRestartValues(this.config.model().fieldAccess(), local, prepared.candidate)) {
-                        return;
-                    }
-
-                    copySyncedRestart(prepared.candidate, local);
-                    this.config.guard().normalize(local);
-                    this.config.guard().validate(local);
-
-                    ConfigStorage.PreparedWrite file = this.config.engine().prepareRestartWrite(local, saved -> {
-                        copySyncedRestart(prepared.candidate, saved);
-
-                        this.config.guard().normalize(saved);
-                        this.config.guard().validate(saved);
-
-                        if (changesRestartValues(this.config.model().fieldAccess(), saved, prepared.candidate)) {
-                            throw this.config.model().scope().exception(
-                                ConfigError.SYNC_APPLY_FAILED, id(), "normalization changed persisted restart selections");
-                        }
-                    });
-                    file.stage(caches);
-                }
-            }).completed()) {
                 return false;
             }
 
@@ -248,10 +217,41 @@ final class SyncedConfig<T> {
                 prepared.applied = publish(prepared);
                 return true;
             } catch (RuntimeException | Error failure) {
-                restorePublished(prepared);
+                restoreIfPublished(prepared);
                 throw failure;
             }
         });
+    }
+
+    private void stage(Prepared<T> prepared, RestartSyncStore.Transaction caches) {
+        caches.stage(prepared.store, prepared.payload);
+
+        if (!prepared.stagesRestartFile) {
+            return;
+        }
+
+        ConfigFieldAccess fieldAccess = this.config.model().fieldAccess();
+        T local = this.config.engine().restartFileState(this.config.declaredDefaults());
+        this.config.guard().normalize(local);
+
+        if (!changesRestartValues(fieldAccess, local, prepared.candidate)) {
+            return;
+        }
+
+        copySyncedRestart(prepared.candidate, local);
+
+        ConfigStorage.PreparedWrite file = this.config.engine().prepareRestartWrite(local, saved -> {
+            copySyncedRestart(prepared.candidate, saved);
+
+            this.config.guard().normalize(saved);
+            this.config.guard().validate(saved);
+
+            if (changesRestartValues(fieldAccess, saved, prepared.candidate)) {
+                throw this.config.model().scope().exception(
+                    ConfigError.SYNC_APPLY_FAILED, id(), "normalization changed persisted restart selections");
+            }
+        });
+        file.stage(caches);
     }
 
     private void copySyncedRestart(T source, T target) {
@@ -278,14 +278,15 @@ final class SyncedConfig<T> {
         return transition;
     }
 
-    private void restorePublished(Prepared<T> prepared) {
+    private boolean restoreIfPublished(Prepared<T> prepared) {
         if (this.config.state().canonical() != prepared.active) {
-            return;
+            return false;
         }
 
         this.config.state().restore(prepared.beforeSnapshot);
-
         this.broadcastHash = cachedSnapshot().hash();
+
+        return true;
     }
 
     private void dispatch(ConfigState.Transition<T> applied) {
@@ -419,6 +420,7 @@ final class SyncedConfig<T> {
         private final T candidate;
         private final T active;
         private final boolean restartRequired;
+        private final boolean stagesRestartFile;
         private final ConfigState.Saved<T> beforeSnapshot;
         private final RestartSyncStore store;
         private final ConfigBytes payload;
@@ -431,6 +433,7 @@ final class SyncedConfig<T> {
             T candidate,
             T active,
             boolean restartRequired,
+            boolean stagesRestartFile,
             ConfigState.Saved<T> beforeSnapshot,
             RestartSyncStore store,
             ConfigBytes payload
@@ -440,6 +443,7 @@ final class SyncedConfig<T> {
             this.candidate = candidate;
             this.active = active;
             this.restartRequired = restartRequired;
+            this.stagesRestartFile = stagesRestartFile;
             this.beforeSnapshot = beforeSnapshot;
             this.store = store;
             this.payload = payload;
