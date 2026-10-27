@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -100,10 +101,8 @@ public final class ConfigGuard<T> {
     }
 
     public void enforceRestart(T current, T candidate) {
-        List<Violation> violations = restartFieldsOf(current, candidate).stream()
-            .filter(this::changed)
-            .map(ConfigGuard::restartViolation)
-            .toList();
+        List<Violation> violations = new ArrayList<>();
+        scanRestart(current, candidate, null, RestartMode.COLLECT, violations);
 
         if (!violations.isEmpty()) {
             throw scope.exception(ConfigError.RESTART_FIELD_CHANGED, violations, typeName, summaryOf(violations));
@@ -111,13 +110,11 @@ public final class ConfigGuard<T> {
     }
 
     public void carryOverRestart(T current, T candidate) {
-        for (RestartField found : restartFieldsOf(current, candidate)) {
-            fieldAccess.write(found.field, found.candidate, fieldAccess.read(found.field, found.current));
-        }
+        scanRestart(current, candidate, null, RestartMode.CARRY_OVER, null);
     }
 
     public boolean changesRestart(T current, T candidate) {
-        return restartFieldsOf(current, candidate).stream().anyMatch(this::changed);
+        return scanRestart(current, candidate, null, RestartMode.DETECT, null);
     }
 
     private List<Violation> invoke(ConfigExtension extension) {
@@ -148,65 +145,89 @@ public final class ConfigGuard<T> {
         }
     }
 
-    private List<RestartField> restartFieldsOf(Object current, Object candidate) {
-        List<RestartField> found = new ArrayList<>();
 
-        collectRestartFields(
-            current,
-            candidate,
-            Collections.newSetFromMap(new IdentityHashMap<>()),
-            found);
-
-        return found;
-    }
-
-    private void collectRestartFields(
+    private boolean scanRestart(
         Object current,
         Object candidate,
         Set<Object> ancestors,
-        List<RestartField> restartFields
+        RestartMode mode,
+        List<Violation> violations
     ) {
         if (current == null
             || candidate == null
             || current.getClass() != candidate.getClass()
-            || !ancestors.add(current)) {
-            return;
+            || (ancestors != null && ancestors.contains(current))) {
+            return false;
         }
+
+        boolean found = false;
+        boolean tracked = false;
 
         try {
             for (DeclaredConfig.Property property : fields.properties(current.getClass())) {
                 Field field = property.field();
 
                 if (property.restart()) {
-                    restartFields.add(new RestartField(field, current, candidate));
+                    Object before = fieldAccess.read(field, current);
+
+                    if (mode == RestartMode.CARRY_OVER) {
+                        fieldAccess.write(field, candidate, before);
+                    } else if (changed(before, fieldAccess.read(field, candidate))) {
+                        if (mode == RestartMode.DETECT) {
+                            return true;
+                        }
+
+                        violations.add(restartViolation(field));
+                        found = true;
+                    }
                 } else if (fields.descendable(property)) {
-                    collectRestartFields(
+                    if (!tracked) {
+                        if (ancestors == null) {
+                            ancestors = Collections.newSetFromMap(new IdentityHashMap<>());
+                        }
+
+                        ancestors.add(current);
+                        tracked = true;
+                    }
+
+                    if (scanRestart(
                         fieldAccess.read(field, current),
                         fieldAccess.read(field, candidate),
                         ancestors,
-                        restartFields);
+                        mode,
+                        violations)) {
+                        if (mode == RestartMode.DETECT) {
+                            return true;
+                        }
+
+                        found = true;
+                    }
                 }
             }
         } finally {
-            ancestors.remove(current);
+            if (tracked) {
+                ancestors.remove(current);
+            }
         }
+
+        return found;
     }
 
-    private boolean changed(RestartField found) {
-        return !ConfigSerialization.toTree(fieldAccess.read(found.field, found.current))
-            .equals(ConfigSerialization.toTree(fieldAccess.read(found.field, found.candidate)));
+    private static boolean changed(Object before, Object after) {
+        return !Objects.deepEquals(before, after)
+            && !ConfigSerialization.toTree(before).equals(ConfigSerialization.toTree(after));
     }
 
     private static String summaryOf(List<Violation> violations) {
         return violations.stream().map(Violation::message).collect(Collectors.joining("; "));
     }
 
-    private static Violation restartViolation(RestartField found) {
+    private static Violation restartViolation(Field field) {
         return Violation.of(
-            "restart." + found.field().getName(),
+            "restart." + field.getName(),
             "%s in %s only applies at startup; edit the config file and restart instead"
-                .formatted(found.field().getName(), found.field().getDeclaringClass().getSimpleName()));
+                .formatted(field.getName(), field.getDeclaringClass().getSimpleName()));
     }
 
-    private record RestartField(Field field, Object current, Object candidate) {}
+    private enum RestartMode { DETECT, COLLECT, CARRY_OVER }
 }
