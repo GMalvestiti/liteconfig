@@ -61,16 +61,22 @@ public final class ConfigEngine<T> {
     }
 
     public void save(T data) {
-        if (!model.extensions().hasBeforeSave()) {
-            storage.write(data);
-            return;
+        save(data, false);
+    }
+
+    public void saveLoaded(T data) {
+        save(data, true);
+    }
+
+    private void save(T data, boolean skipUnchanged) {
+        T candidate = data;
+        if (model.extensions().hasBeforeSave()) {
+            candidate = StateCopies.isolated(cloner, data, model.scope());
+            invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
+            normalizer.accept(candidate);
         }
 
-        T candidate = StateCopies.isolated(cloner, data, model.scope());
-        invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
-
-        normalizer.accept(candidate);
-        storage.write(candidate);
+        storage.write(candidate, skipUnchanged);
     }
 
     public void save(T data, Consumer<T> finish) {

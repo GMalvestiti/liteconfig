@@ -9,10 +9,13 @@ import com.gmalvestiti.minecraft.liteconfig.storage.ConfigFileOwnership;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 public final class ConfigRegistry {
 
@@ -163,8 +166,10 @@ public final class ConfigRegistry {
                     worldVersion++;
                 }
 
+                Set<RegisteredConfig<?>> known = Collections.newSetFromMap(new IdentityHashMap<>());
+                known.addAll(registrations);
                 for (RegisteredConfig<?> registration : registrations()) {
-                    if (!registrations.contains(registration)) {
+                    if (known.add(registration)) {
                         registrations.add(registration);
                     }
                 }

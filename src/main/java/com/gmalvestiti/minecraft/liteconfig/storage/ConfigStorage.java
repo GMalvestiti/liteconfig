@@ -38,6 +38,7 @@ public final class ConfigStorage<T> {
     private final ConfigTextFormat format;
     private final ConfigScope scope;
     private volatile CachedStore cachedStore;
+    private volatile ReadSnapshot lastRead;
 
     public ConfigStorage(Class<T> configType, ConfigPathResolver pathResolver, ConfigScope scope) {
         this.configType = Objects.requireNonNull(configType, "configType");
@@ -61,6 +62,8 @@ public final class ConfigStorage<T> {
 
     private record CachedStore(Path base, Path path, RestartSyncStore store) {}
 
+    private record ReadSnapshot(Path path, String text) {}
+
     public T read() {
         Path path = pathResolver.currentPathForConfig(configType);
 
@@ -71,6 +74,7 @@ public final class ConfigStorage<T> {
             path = pathResolver.restartPathForConfig(configType);
         }
 
+        lastRead = null;
         byte[] bytes = store(path).readFile();
         if (bytes == null) {
             return null;
@@ -83,6 +87,7 @@ public final class ConfigStorage<T> {
             throw scope.exception(ConfigError.IO_LOAD_FAILURE, failure, path);
         }
 
+        lastRead = new ReadSnapshot(path, text);
         Path source = path;
         JsonObject tree = decode(source, () -> format.readTree(text));
         return decode(source, () -> ConfigSerialization.fromTree(ConfigMigrations.of(configType).apply(tree, scope), configType));
@@ -112,6 +117,10 @@ public final class ConfigStorage<T> {
     }
 
     public void write(T data) {
+        write(data, false);
+    }
+
+    public void write(T data, boolean skipUnchanged) {
         Objects.requireNonNull(data, "data");
 
         Path path = pathResolver.currentPathForConfig(configType);
@@ -119,10 +128,23 @@ public final class ConfigStorage<T> {
             return;
         }
 
+        String rendered;
+        try {
+            rendered = render(data);
+        } catch (RuntimeException failure) {
+            throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
+        }
+
+        ReadSnapshot snapshot = lastRead;
+        lastRead = null;
+        if (skipUnchanged && snapshot != null && snapshot.path().equals(path) && snapshot.text().equals(rendered)) {
+            return;
+        }
+
         RestartSyncStore journal = store(path);
         if (journal.journaled()) {
             try {
-                journal.writeFile(render(data).getBytes(StandardCharsets.UTF_8));
+                journal.writeFile(rendered.getBytes(StandardCharsets.UTF_8));
             } catch (RuntimeException failure) {
                 throw scope.exception(ConfigError.IO_SAVE_FAILURE, failure, path);
             }
@@ -132,7 +154,7 @@ public final class ConfigStorage<T> {
         Path temp = temporarySibling(path);
         try {
             Files.createDirectories(path.getParent());
-            Files.writeString(temp, render(data), StandardCharsets.UTF_8);
+            Files.writeString(temp, rendered, StandardCharsets.UTF_8);
             replace(temp, path);
         } catch (IOException | RuntimeException ex) {
             throw scope.exception(ConfigError.IO_SAVE_FAILURE, ex, path);

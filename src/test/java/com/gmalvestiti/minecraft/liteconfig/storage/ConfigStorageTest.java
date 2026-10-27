@@ -66,6 +66,22 @@ class ConfigStorageTest {
     }
 
     @Test
+    void testSkipUnchangedLeavesMatchingFileUntouched(@TempDir Path tempDir) throws IOException {
+        ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
+        storage.write(new TestFixtures.SimpleConfig());
+        Path file;
+        try (java.util.stream.Stream<Path> files = Files.walk(tempDir)) {
+            file = files.filter(Files::isRegularFile).findFirst().orElseThrow();
+        }
+        assertNotNull(storage.read());
+
+        Files.setLastModifiedTime(file, java.nio.file.attribute.FileTime.fromMillis(1_000));
+        storage.write(new TestFixtures.SimpleConfig(), true);
+
+        assertEquals(1_000, Files.getLastModifiedTime(file).toMillis());
+    }
+
+    @Test
     void testReadsMissingAsNull(@TempDir Path tempDir) {
         ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
         TestFixtures.SimpleConfig value = storage.read();

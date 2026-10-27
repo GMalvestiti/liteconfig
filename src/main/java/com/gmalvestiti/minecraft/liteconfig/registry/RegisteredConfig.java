@@ -196,7 +196,7 @@ public final class RegisteredConfig<T> {
                     T loaded = next;
 
                     if (!read.ioLoadFailed()) {
-                        exceptionHandler.onWrite(() -> engine.save(loaded));
+                        exceptionHandler.onWrite(() -> engine.saveLoaded(loaded));
                     }
                 } else {
                     next = declaredDefaults();
