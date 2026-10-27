@@ -33,7 +33,7 @@ public final class SyncValueCodecs {
                 ConfigError.UNSUPPORTED_SYNC_TYPE, property.fieldName(), declaredType.getTypeName()));
     }
 
-    private static Optional<Resolved> strategy(Type declaredType) {
+    private static Optional<Resolved>   strategy(Type declaredType) {
         Class<?> rawType = rawTypeOf(declaredType);
         StreamCodec<ByteBuf, ?> registered = LiteConfig.codecs()
             .findStream(declaredType)
@@ -88,7 +88,8 @@ public final class SyncValueCodecs {
 
             return strategy(arguments[0]).map(element -> new Resolved(
                 NullableValueCodec.wrap(
-                    rawType, CollectionValueCodecs.set(element.codec()), false),
+                    rawType, CollectionValueCodecs.set(element.codec(),
+                        hasNaturalOrder(rawTypeOf(arguments[0]), element.schema())), false),
                 "set<" + element.schema() + '>'));
         }
 
@@ -110,6 +111,14 @@ public final class SyncValueCodecs {
         }
 
         return Optional.empty();
+    }
+
+    private static boolean hasNaturalOrder(Class<?> type, String schema) {
+        return schema.startsWith("builtin:")
+            && (type.isEnum() || type == String.class || type == Boolean.class
+            || type == Character.class || type == Byte.class || type == Short.class
+            || type == Integer.class || type == Long.class || type == Float.class
+            || type == Double.class);
     }
 
     private static Class<?> rawTypeOf(Type type) {

@@ -8,6 +8,7 @@ import net.minecraft.network.codec.StreamCodec;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,7 +31,7 @@ final class CollectionValueCodecs {
         }, buffer -> {
             int size = SyncCodecBounds.readCollectionSize(buffer, "list");
 
-            List<Object> values = new ArrayList<>(size);
+            List<Object> values = new ArrayList<>(Math.min(size, buffer.readableBytes()));
             for (int index = 0; index < size; index++) {
                 values.add(elementCodec.decode(buffer));
             }
@@ -55,7 +56,7 @@ final class CollectionValueCodecs {
         }, buffer -> {
             int size = SyncCodecBounds.readCollectionSize(buffer, "map");
 
-            Map<Object, Object> values = LinkedHashMap.newLinkedHashMap(size);
+            Map<Object, Object> values = LinkedHashMap.newLinkedHashMap(Math.min(size, buffer.readableBytes()));
             for (int index = 0; index < size; index++) {
 
                 Object key = keyCodec.decode(buffer);
@@ -73,19 +74,26 @@ final class CollectionValueCodecs {
     }
 
     static StreamCodec<ByteBuf, Set<Object>> set(
-        StreamCodec<ByteBuf, Object> elementCodec
+        StreamCodec<ByteBuf, Object> elementCodec,
+        boolean naturalOrder
     ) {
         return StreamCodec.of((buffer, values) -> {
-            SyncCodecBounds.requireCollectionSize(values.size(), "set");
+            int size = values.size();
+            SyncCodecBounds.requireCollectionSize(size, "set");
 
-            List<byte[]> encoded = encodeSorted(values, elementCodec);
-            ByteBufCodecs.VAR_INT.encode(buffer, encoded.size());
+            ByteBufCodecs.VAR_INT.encode(buffer, size);
 
-            encoded.forEach(buffer::writeBytes);
+            if (size <= 1) {
+                values.forEach(value -> elementCodec.encode(buffer, value));
+            } else if (naturalOrder) {
+                writeNatural(buffer, values, elementCodec);
+            } else {
+                writeByEncoding(buffer, values, elementCodec);
+            }
         }, buffer -> {
             int size = SyncCodecBounds.readCollectionSize(buffer, "set");
 
-            Set<Object> values = LinkedHashSet.newLinkedHashSet(size);
+            Set<Object> values = LinkedHashSet.newLinkedHashSet(Math.min(size, buffer.readableBytes()));
             for (int index = 0; index < size; index++) {
 
                 Object value = elementCodec.decode(buffer);
@@ -99,29 +107,51 @@ final class CollectionValueCodecs {
         });
     }
 
-    private static List<byte[]> encodeSorted(
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void writeNatural(
+        ByteBuf buffer,
         Set<Object> values,
         StreamCodec<ByteBuf, Object> elementCodec
     ) {
-        List<byte[]> encoded = new ArrayList<>(values.size());
-        ByteBuf elementBuffer = Unpooled.buffer();
+        Object[] sorted = values.toArray();
+        Arrays.sort(sorted, (Comparator) Comparator.naturalOrder());
+
+        for (Object value : sorted) {
+            elementCodec.encode(buffer, value);
+        }
+    }
+
+    private static void writeByEncoding(
+        ByteBuf buffer,
+        Set<Object> values,
+        StreamCodec<ByteBuf, Object> elementCodec
+    ) {
+        ByteBuf scratch = Unpooled.buffer();
 
         try {
+            int[] ends = new int[values.size()];
+            Integer[] order = new Integer[ends.length];
+            int count = 0;
+
             for (Object value : values) {
-                elementBuffer.clear();
-                elementCodec.encode(elementBuffer, value);
+                elementCodec.encode(scratch, value);
+                order[count] = count;
+                ends[count++] = scratch.writerIndex();
+            }
 
-                byte[] bytes = new byte[elementBuffer.readableBytes()];
+            byte[] bytes = scratch.array();
+            Arrays.sort(order, (left, right) -> Arrays.compareUnsigned(
+                bytes, start(ends, left), ends[left], bytes, start(ends, right), ends[right]));
 
-                elementBuffer.readBytes(bytes);
-                encoded.add(bytes);
+            for (int index : order) {
+                buffer.writeBytes(bytes, start(ends, index), ends[index] - start(ends, index));
             }
         } finally {
-            elementBuffer.release();
+            scratch.release();
         }
+    }
 
-        encoded.sort(Arrays::compareUnsigned);
-
-        return encoded;
+    private static int start(int[] ends, int index) {
+        return index == 0 ? 0 : ends[index - 1];
     }
 }

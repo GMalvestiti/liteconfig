@@ -31,8 +31,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -230,6 +232,39 @@ class BuiltInValueSupportTest {
             assertEquals(value.getClass(), decoded.getClass(), field.getName());
             assertEquals(ConfigSerialization.toTree(value), ConfigSerialization.toTree(decoded), field.getName());
         }
+    }
+
+    @Test
+    void encodesSetsIdenticallyRegardlessOfInsertionOrder() throws NoSuchFieldException {
+        for (String field : new String[]{"names", "ids"}) {
+            Type type = SetFields.class.getField(field).getGenericType();
+            Set<Object> forward = new LinkedHashSet<>();
+            Set<Object> backward = new LinkedHashSet<>();
+            List<Object> items = field.equals("names")
+                ? List.of("pear", "apple", "fig", "kiwi")
+                : List.of(new UUID(1, 2), new UUID(-1, 5), new UUID(0, 9));
+            forward.addAll(items);
+            backward.addAll(items.reversed());
+            assertArrayEquals(encode(type, forward), encode(type, backward), field);
+            assertEquals(forward, roundTrip(type, backward), field);
+        }
+    }
+
+    private static byte[] encode(Type type, Object value) {
+        ByteBuf buffer = Unpooled.buffer();
+        try {
+            resolve(type).codec().encode(buffer, value);
+            byte[] bytes = new byte[buffer.readableBytes()];
+            buffer.readBytes(bytes);
+            return bytes;
+        } finally {
+            buffer.release();
+        }
+    }
+
+    public static class SetFields {
+        public Set<String> names;
+        public Set<UUID> ids;
     }
 
     private static SyncValueCodecs.Resolved resolve(Type type) {
