@@ -6,6 +6,7 @@ import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 
 import java.lang.reflect.Array;
+import java.util.Map;
 
 final class ArrayValueCodecs {
 
@@ -129,6 +130,17 @@ final class ArrayValueCodecs {
             return array;
         });
 
+    private static final Map<Class<?>, StreamCodec<ByteBuf, Object>> PRIMITIVES = Map.of(
+        boolean.class, BOOLEANS,
+        byte.class, BYTES,
+        short.class, SHORTS,
+        char.class, CHARS,
+        int.class, INTS,
+        long.class, LONGS,
+        float.class, FLOATS,
+        double.class, DOUBLES
+    );
+
     private ArrayValueCodecs() {}
 
     static StreamCodec<ByteBuf, Object> array(
@@ -136,7 +148,7 @@ final class ArrayValueCodecs {
         StreamCodec<ByteBuf, Object> elementCodec,
         boolean customElement
     ) {
-        StreamCodec<ByteBuf, Object> primitive = customElement ? null : primitive(componentType);
+        StreamCodec<ByteBuf, Object> primitive = customElement ? null : PRIMITIVES.get(componentType);
         if (primitive != null) {
             return primitive;
         }
@@ -160,42 +172,6 @@ final class ArrayValueCodecs {
 
             return values;
         });
-    }
-
-    private static StreamCodec<ByteBuf, Object> primitive(Class<?> type) {
-        if (!type.isPrimitive()) {
-            return null;
-        }
-
-        if (type == int.class) {
-            return INTS;
-        }
-
-        if (type == long.class) {
-            return LONGS;
-        }
-
-        if (type == double.class) {
-            return DOUBLES;
-        }
-
-        if (type == float.class) {
-            return FLOATS;
-        }
-
-        if (type == boolean.class) {
-            return BOOLEANS;
-        }
-
-        if (type == byte.class) {
-            return BYTES;
-        }
-
-        if (type == short.class) {
-            return SHORTS;
-        }
-
-        return CHARS;
     }
 
     private static void writeLength(ByteBuf buffer, int length) {

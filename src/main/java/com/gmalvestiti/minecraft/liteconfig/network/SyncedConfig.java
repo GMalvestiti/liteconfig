@@ -340,26 +340,15 @@ final class SyncedConfig<T> {
         }
     }
 
-    private boolean encodedValueChanged(SyncedValue value, Object first, Object second) {
-        if (first == second) {
-            return false;
-        }
-        ByteBuf buffer = Unpooled.buffer();
-        try {
-            value.codec().encode(buffer, first);
-            int firstLength = buffer.writerIndex();
+    private static boolean encodedValueChanged(SyncedValue value, Object first, Object second, ByteBuf scratch) {
+        scratch.clear();
+        value.codec().encode(scratch, first);
+        int firstLength = scratch.writerIndex();
 
-            value.codec().encode(buffer, second);
-            int secondLength = buffer.writerIndex() - firstLength;
+        value.codec().encode(scratch, second);
+        int secondLength = scratch.writerIndex() - firstLength;
 
-            if (firstLength != secondLength) {
-                return true;
-            }
-
-            return !ByteBufUtil.equals(buffer, 0, buffer, firstLength, firstLength);
-        } finally {
-            buffer.release();
-        }
+        return firstLength != secondLength || !ByteBufUtil.equals(scratch, 0, scratch, firstLength, firstLength);
     }
 
     void registerLocalChangeBroadcast() {
@@ -397,14 +386,36 @@ final class SyncedConfig<T> {
             return false;
         }
 
-        for (SyncedValue value : syncSchema.values()) {
-            if (value.restart()
-                && encodedValueChanged(value, value.read(fieldAccess, before), value.read(fieldAccess, after))) {
-                return true;
+        ByteBuf scratch = null;
+
+        try {
+            for (SyncedValue value : syncSchema.values()) {
+                if (!value.restart()) {
+                    continue;
+                }
+
+                Object first = value.read(fieldAccess, before);
+                Object second = value.read(fieldAccess, after);
+
+                if (Objects.deepEquals(first, second)) {
+                    continue;
+                }
+
+                if (scratch == null) {
+                    scratch = Unpooled.buffer();
+                }
+
+                if (encodedValueChanged(value, first, second, scratch)) {
+                    return true;
+                }
+            }
+
+            return false;
+        } finally {
+            if (scratch != null) {
+                scratch.release();
             }
         }
-
-        return false;
     }
 
     private static byte[] hash(byte[] data) {
