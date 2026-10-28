@@ -6,31 +6,22 @@ import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import java.lang.reflect.Array;
 import java.util.Collection;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 final class PropertyRules {
 
-    private final ConfigConstraints constraints;
-    private final Set<String> allowed;
-
-    PropertyRules(ConfigConstraints constraints) {
-        this.constraints = constraints;
-        this.allowed = constraints.allowedValues().stream()
-            .map(value -> value.toLowerCase(Locale.ROOT))
-            .collect(Collectors.toUnmodifiableSet());
-    }
+    private PropertyRules() {}
 
     static String path(String prefix, String key) {
         return prefix.isEmpty() ? key : prefix + "." + key;
     }
 
-    void check(
+    static void check(
+        ConfigConstraints constraints,
         String prefix,
         String key,
         Object value,
@@ -38,7 +29,7 @@ final class PropertyRules {
         List<Violation> violations
     ) {
         if (value == null) {
-            checkMissing(prefix, key, requiredChoices, violations);
+            checkMissing(constraints, prefix, key, requiredChoices, violations);
             return;
         }
 
@@ -48,26 +39,32 @@ final class PropertyRules {
         }
 
         if (constraints.hasRange()) {
-            checkRange(prefix, key, value, violations);
+            checkRange(constraints, prefix, key, value, violations);
         }
 
         if (constraints.hasPattern()) {
-            checkPattern(prefix, key, value, violations);
+            checkPattern(constraints, prefix, key, value, violations);
         }
 
         if (constraints.hasLength()) {
-            checkLength(prefix, key, value, violations);
+            checkLength(constraints, prefix, key, value, violations);
         }
 
-        if (!allowed.isEmpty() && value instanceof String text) {
-            checkAllowed(prefix, key, text, violations);
+        if (!constraints.allowedValues().isEmpty() && value instanceof String text) {
+            checkAllowed(constraints, prefix, key, text, violations);
         }
     }
 
-    private void checkMissing(String prefix, String key, Set<String> requiredChoices, List<Violation> violations) {
+    private static void checkMissing(
+        ConfigConstraints constraints,
+        String prefix,
+        String key,
+        Set<String> requiredChoices,
+        List<Violation> violations
+    ) {
         boolean notNull = constraints.hasNotNull();
         boolean notBlank = constraints.hasNotBlank();
-        boolean choice = !allowed.isEmpty();
+        boolean choice = !constraints.allowedValues().isEmpty();
         if (!notNull && !notBlank && !choice) {
             return;
         }
@@ -88,7 +85,13 @@ final class PropertyRules {
         }
     }
 
-    private void checkRange(String prefix, String key, Object value, List<Violation> violations) {
+    private static void checkRange(
+        ConfigConstraints constraints,
+        String prefix,
+        String key,
+        Object value,
+        List<Violation> violations
+    ) {
         if (!(value instanceof Number number)) {
             return;
         }
@@ -113,7 +116,13 @@ final class PropertyRules {
         }
     }
 
-    private void checkPattern(String prefix, String key, Object value, List<Violation> violations) {
+    private static void checkPattern(
+        ConfigConstraints constraints,
+        String prefix,
+        String key,
+        Object value,
+        List<Violation> violations
+    ) {
         if (!(value instanceof String text)) {
             return;
         }
@@ -125,7 +134,13 @@ final class PropertyRules {
         }
     }
 
-    private void checkLength(String prefix, String key, Object value, List<Violation> violations) {
+    private static void checkLength(
+        ConfigConstraints constraints,
+        String prefix,
+        String key,
+        Object value,
+        List<Violation> violations
+    ) {
         int length = switch (value) {
             case String text -> text.length();
             case Collection<?> items -> items.size();
@@ -150,9 +165,17 @@ final class PropertyRules {
         }
     }
 
-    private void checkAllowed(String prefix, String key, String text, List<Violation> violations) {
-        if (allowed.contains(text.toLowerCase(Locale.ROOT))) {
-            return;
+    private static void checkAllowed(
+        ConfigConstraints constraints,
+        String prefix,
+        String key,
+        String text,
+        List<Violation> violations
+    ) {
+        for (String allowed : constraints.allowedValues()) {
+            if (allowed.equalsIgnoreCase(text)) {
+                return;
+            }
         }
 
         String path = path(prefix, key);

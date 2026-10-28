@@ -205,7 +205,7 @@ class ConstraintValidatorTest {
 
     private static ConstraintValidator validatorFor(Class<?> type) {
         ConfigModel<?> model = TestFixtures.model(type);
-        return new ConstraintValidator(model.fieldAccess(), model.metadata());
+        return new ConstraintValidator(model.fieldAccess(), model.fields(), model.metadata());
     }
 
     static class NaNValueConfig {

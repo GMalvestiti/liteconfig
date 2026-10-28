@@ -20,30 +20,57 @@ public final class AllowedValueNormalizer {
     }
 
     public void normalize(Object candidate) {
-        normalize(candidate, Collections.newSetFromMap(new IdentityHashMap<>()));
+        if (candidate != null) {
+            normalize(candidate, null);
+        }
     }
 
-    private void normalize(Object candidate, Set<Object> ancestors) {
-        if (candidate == null || !ancestors.add(candidate)) {
-            return;
-        }
+    private void normalize(Object owner, Set<Object> ancestors) {
+        boolean tracked = false;
 
         try {
-            for (DeclaredConfig.Property property : fields.properties(candidate.getClass())) {
-                Object value = fieldAccess.read(property.field(), candidate);
+            for (DeclaredConfig.Property property : fields.properties(owner.getClass())) {
                 ConfigConstraints constraints = property.constraints();
+                boolean restricted = !constraints.allowedValues().isEmpty();
+                boolean descendable = !restricted && fields.descendable(property);
 
-                if (value instanceof String text && !constraints.allowedValues().isEmpty()) {
-                    String normalized = constraints.normalization().apply(text, constraints.trim());
-                    if (!normalized.equals(text)) {
-                        fieldAccess.write(property.field(), candidate, normalized);
+                if (!restricted && !descendable) {
+                    continue;
+                }
+
+                Object value = fieldAccess.read(property.field(), owner);
+
+                if (restricted) {
+                    if (value instanceof String text) {
+                        String normalized = constraints.normalization().apply(text, constraints.trim());
+                        if (!normalized.equals(text)) {
+                            fieldAccess.write(property.field(), owner, normalized);
+                        }
                     }
-                } else if (fields.descendable(property)) {
+                    continue;
+                }
+
+                if (value == null) {
+                    continue;
+                }
+
+                if (!tracked) {
+                    if (ancestors == null) {
+                        ancestors = Collections.newSetFromMap(new IdentityHashMap<>());
+                    }
+
+                    ancestors.add(owner);
+                    tracked = true;
+                }
+
+                if (!ancestors.contains(value)) {
                     normalize(value, ancestors);
                 }
             }
         } finally {
-            ancestors.remove(candidate);
+            if (tracked) {
+                ancestors.remove(owner);
+            }
         }
     }
 }

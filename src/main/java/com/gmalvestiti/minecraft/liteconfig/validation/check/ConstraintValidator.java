@@ -1,8 +1,11 @@
 package com.gmalvestiti.minecraft.liteconfig.validation.check;
 
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
+import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigConstraints;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
+import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
+import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 
 import java.util.ArrayList;
@@ -16,11 +19,13 @@ import java.util.stream.Collectors;
 public final class ConstraintValidator {
 
     private final ConfigFieldAccess fieldAccess;
+    private final ConfigFieldPlan fields;
     private final Set<String> requiredChoices;
     private final Set<String> requiredObjects;
 
-    public ConstraintValidator(ConfigFieldAccess fieldAccess, ConfigMetadata metadata) {
+    public ConstraintValidator(ConfigFieldAccess fieldAccess, ConfigFieldPlan fields, ConfigMetadata metadata) {
         this.fieldAccess = fieldAccess;
+        this.fields = fields;
         this.requiredChoices = metadata.flatten()
             .filter(property -> !property.constraints().allowedValues().isEmpty())
             .filter(property -> property.defaultValue() != null)
@@ -44,18 +49,25 @@ public final class ConstraintValidator {
         boolean tracked = false;
 
         try {
-            for (ConstraintPlan.Step step : ConstraintPlan.of(owner.getClass())) {
-                Object value = fieldAccess.read(step.field(), owner);
+            for (DeclaredConfig.Property property : fields.properties(owner.getClass())) {
+                ConfigConstraints constraints = property.constraints();
+                boolean descendable = fields.descendable(property);
 
-                if (step.rules() != null) {
-                    step.rules().check(prefix, step.key(), value, requiredChoices, violations);
-                }
-
-                if (!step.descendable()) {
+                if (constraints.isEmpty() && !descendable) {
                     continue;
                 }
 
-                String path = PropertyRules.path(prefix, step.key());
+                Object value = fieldAccess.read(property.field(), owner);
+
+                if (!constraints.isEmpty()) {
+                    PropertyRules.check(constraints, prefix, property.key(), value, requiredChoices, violations);
+                }
+
+                if (!descendable) {
+                    continue;
+                }
+
+                String path = PropertyRules.path(prefix, property.key());
                 if (value == null) {
                     if (requiredObjects.contains(path)) {
                         violations.add(Violation.of("required." + path, "%s must not be null".formatted(path)));

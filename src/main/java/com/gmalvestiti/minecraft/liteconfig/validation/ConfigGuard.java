@@ -28,7 +28,7 @@ public final class ConfigGuard<T> {
         this.scope = model.scope();
         this.typeName = model.typeName();
         this.normalizer = new AllowedValueNormalizer(model.fieldAccess(), model.fields());
-        this.constraints = new ConstraintValidator(model.fieldAccess(), model.metadata());
+        this.constraints = new ConstraintValidator(model.fieldAccess(), model.fields(), model.metadata());
         this.extension = new ExtensionValidator(model.scope(), model.extensions().label());
         this.restart = new RestartInspector(model.fieldAccess(), model.fields());
     }
