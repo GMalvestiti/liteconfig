@@ -7,7 +7,6 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Per-class list of the properties validation has to look at; the rest are never read. */
 final class ConstraintPlan {
 
     private static final ClassValue<List<Step>> STEPS = new ClassValue<>() {

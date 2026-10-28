@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
-/** Finds, reports or reverts changes to restart-only fields between two config objects. */
 public final class RestartInspector {
 
     private enum Mode { DETECT, COLLECT, CARRY_OVER }

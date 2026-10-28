@@ -14,7 +14,6 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-/** Constraints of one property, prepared once so checking a value recomputes nothing. */
 final class PropertyRules {
 
     private final ConfigConstraints constraints;
@@ -82,7 +81,6 @@ final class PropertyRules {
             violations.add(Violation.of("notblank." + path, "%s must not be blank".formatted(path)));
         }
 
-        // A deliberately null default stays valid; only a persisted unknown constant reads back as null.
         if (choice && requiredChoices.contains(path)) {
             violations.add(Violation.of(
                 "value." + path,

@@ -9,7 +9,6 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
-/** Rewrites restricted string fields into their canonical case and trimming. */
 public final class AllowedValueNormalizer {
 
     private final ConfigFieldAccess fieldAccess;

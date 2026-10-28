@@ -13,7 +13,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** Checks the declared constraints of a config object tree and reports what fails. */
 public final class ConstraintValidator {
 
     private final ConfigFieldAccess fieldAccess;

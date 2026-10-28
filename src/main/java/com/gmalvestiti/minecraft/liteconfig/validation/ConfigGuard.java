@@ -5,7 +5,7 @@ import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncSchema;
-import com.gmalvestiti.minecraft.liteconfig.validation.check.constraint.ConstraintValidator;
+import com.gmalvestiti.minecraft.liteconfig.validation.check.ConstraintValidator;
 import com.gmalvestiti.minecraft.liteconfig.validation.check.ExtensionValidator;
 import com.gmalvestiti.minecraft.liteconfig.validation.check.AllowedValueNormalizer;
 import com.gmalvestiti.minecraft.liteconfig.validation.check.RestartInspector;
@@ -13,7 +13,6 @@ import com.gmalvestiti.minecraft.liteconfig.validation.check.RestartInspector;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/** Normalizes, validates and restart-checks config candidates for one registration. */
 public final class ConfigGuard<T> {
 
     private final ConfigScope scope;
@@ -50,7 +49,6 @@ public final class ConfigGuard<T> {
         }
     }
 
-    /** Declared constraints win; the extension hook only runs on a candidate that passes them. */
     List<Violation> violationsOf(T candidate) {
         List<Violation> declared = constraints.validate(candidate);
 

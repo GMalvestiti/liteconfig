@@ -9,7 +9,6 @@ import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Runs the validation hook of a config that implements {@link ConfigExtension}. */
 public final class ExtensionValidator {
 
     private final ConfigScope scope;

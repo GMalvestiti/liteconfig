@@ -8,7 +8,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
-import com.gmalvestiti.minecraft.liteconfig.validation.check.constraint.ConstraintValidator;
+import com.gmalvestiti.minecraft.liteconfig.validation.check.ConstraintValidator;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

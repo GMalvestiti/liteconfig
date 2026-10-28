@@ -18,7 +18,6 @@ public final class ConfigModelValidator {
     private ConfigModelValidator() {}
 
     public static void validate(ConfigModel<?> model) {
-
         Class<?> rootType = model.type();
         ConfigScope scope = model.scope();
 
