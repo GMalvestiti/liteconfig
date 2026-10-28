@@ -155,7 +155,7 @@ public final class RegisteredConfig<T> {
             engine.save(data);
         } else {
             engine.save(data, candidate -> {
-                guard.carryOverRestart(pending, candidate);
+                guard.keepRestartValues(pending, candidate);
                 guard.normalize(candidate);
                 guard.validate(candidate);
             });

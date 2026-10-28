@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.validation;
 
+import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
@@ -56,6 +57,24 @@ class ConfigModelValidatorTest {
         );
 
         assertEquals(ConfigError.RESERVED_VERSION_KEY, failure.error());
+    }
+
+    @Test
+    void testRejectsConfigReferencedFromANestedSection() {
+        LiteConfigException failure = assertThrows(
+            LiteConfigException.class,
+            () -> validate(NestedReferenceConfig.class)
+        );
+        assertEquals(ConfigError.CONFIG_REFERENCE_FORBIDDEN, failure.error());
+    }
+
+    @Config(name = "nested_reference")
+    static class NestedReferenceConfig {
+        Section section = new Section();
+    }
+
+    static class Section {
+        TestFixtures.SimpleConfig other;
     }
 
     static class UnannotatedConfig {}

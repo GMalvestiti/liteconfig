@@ -84,12 +84,12 @@ class ConfigGuardRestartTest {
         CyclicConfig current = new CyclicConfig();
         CyclicConfig candidate = new CyclicConfig();
 
-        guard.enforceRestart(current, candidate);
+        guard.rejectRestartChanges(current, candidate);
 
         candidate.node.value = 2;
         LiteConfigException failure = org.junit.jupiter.api.Assertions.assertThrows(
             LiteConfigException.class,
-            () -> guard.enforceRestart(current, candidate));
+            () -> guard.rejectRestartChanges(current, candidate));
         assertEquals(ConfigError.RESTART_FIELD_CHANGED, failure.error());
     }
 

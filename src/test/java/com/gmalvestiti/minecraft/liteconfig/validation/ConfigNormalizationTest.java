@@ -131,10 +131,10 @@ class ConfigNormalizationTest {
         candidate.database = " SQLITE ";
         candidate.nested.mode = " safe ";
         guard.normalize(candidate);
-        assertDoesNotThrow(() -> guard.enforceRestart(current, candidate));
+        assertDoesNotThrow(() -> guard.rejectRestartChanges(current, candidate));
         candidate.nested.mode = " fast ";
         guard.normalize(candidate);
-        assertThrows(LiteConfigException.class, () -> guard.enforceRestart(current, candidate));
+        assertThrows(LiteConfigException.class, () -> guard.rejectRestartChanges(current, candidate));
     }
 
     @Test

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.nio.file.Files;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -85,7 +86,7 @@ class RegisteredConfigTest {
         RegisteredConfig<TestFixtures.SimpleConfig> registration =
             create(settings(TestFixtures.SimpleConfig.class, tempDir));
 
-        assertTrue(registration.guard().violationsOf(new TestFixtures.SimpleConfig()).isEmpty());
+        assertDoesNotThrow(() -> registration.guard().validate(new TestFixtures.SimpleConfig()));
     }
 
     @Test

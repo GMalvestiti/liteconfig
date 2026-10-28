@@ -5,10 +5,13 @@ import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
 import com.gmalvestiti.minecraft.liteconfig.migration.ConfigMigrations;
+import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 
 import java.lang.reflect.Field;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class ConfigModelValidator {
 
@@ -20,22 +23,41 @@ public final class ConfigModelValidator {
         ConfigScope scope = model.scope();
 
         if (rootType.isAnnotationPresent(Config.class)) {
-            validateConfigClass(rootType, scope);
+            validateConfigClass(model, scope);
             return;
         }
 
         throw scope.exception(ConfigError.MISSING_CONFIG_MARKER, rootType.getName());
     }
 
-    private static void validateConfigClass(Class<?> configType, ConfigScope scope) {
-        for (Field field : configType.getDeclaredFields()) {
+    private static void validateConfigClass(ConfigModel<?> model, ConfigScope scope) {
+        Class<?> configType = model.type();
+        rejectConfigReferences(configType, model.fields(), scope, new HashSet<>());
+        rejectReservedVersionKey(configType, scope);
+        rejectInvalidMigrations(configType, scope);
+    }
+
+    private static void rejectConfigReferences(
+        Class<?> type,
+        ConfigFieldPlan fields,
+        ConfigScope scope,
+        Set<Class<?>> visited
+    ) {
+        if (!visited.add(type)) {
+            return;
+        }
+
+        for (Field field : type.getDeclaredFields()) {
             if (field.getType().isAnnotationPresent(Config.class)) {
-                throw scope.exception(ConfigError.CONFIG_REFERENCE_FORBIDDEN, field.getName(), configType.getName());
+                throw scope.exception(ConfigError.CONFIG_REFERENCE_FORBIDDEN, field.getName(), type.getName());
             }
         }
 
-        rejectReservedVersionKey(configType, scope);
-        rejectInvalidMigrations(configType, scope);
+        for (DeclaredConfig.Property property : fields.properties(type)) {
+            if (fields.descendable(property)) {
+                rejectConfigReferences(property.type(), fields, scope, visited);
+            }
+        }
     }
 
     private static void rejectReservedVersionKey(Class<?> configType, ConfigScope scope) {

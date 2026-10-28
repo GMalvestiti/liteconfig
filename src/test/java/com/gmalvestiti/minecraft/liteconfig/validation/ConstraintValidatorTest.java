@@ -8,6 +8,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.NotNull;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Range;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
+import com.gmalvestiti.minecraft.liteconfig.validation.check.constraint.ConstraintValidator;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -16,14 +17,14 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class ConfigConstraintValidatorTest {
+class ConstraintValidatorTest {
 
-    private final ConfigConstraintValidator validator =
+    private final ConstraintValidator validator =
         validatorFor(TestFixtures.ConstrainedConfig.class);
 
     @Test
     void testAcceptsTheDeclaredDefaults() {
-        assertEquals(List.of(), validator.run(new TestFixtures.ConstrainedConfig()));
+        assertEquals(List.of(), validator.validate(new TestFixtures.ConstrainedConfig()));
     }
 
     @Test
@@ -84,14 +85,14 @@ class ConfigConstraintValidatorTest {
 
     @Test
     void testAcceptsAllowedStringValuesWithoutCase() {
-        assertEquals(List.of(), validatorFor(DatabaseConfig.class).run(new DatabaseConfig("MySQL")));
+        assertEquals(List.of(), validatorFor(DatabaseConfig.class).validate(new DatabaseConfig("MySQL")));
     }
 
     @Test
     void testReportsAStringOutsideTheAllowedValues() {
         assertEquals(
             List.of("value.database"),
-            validatorFor(DatabaseConfig.class).run(new DatabaseConfig("postgres")).stream().map(Violation::id).toList()
+            validatorFor(DatabaseConfig.class).validate(new DatabaseConfig("postgres")).stream().map(Violation::id).toList()
         );
     }
 
@@ -99,13 +100,13 @@ class ConfigConstraintValidatorTest {
     void testRejectsAMissingAllowedStringWithANonNullDefault() {
         assertEquals(
             List.of("value.database"),
-            validatorFor(DatabaseConfig.class).run(new DatabaseConfig(null))
+            validatorFor(DatabaseConfig.class).validate(new DatabaseConfig(null))
                 .stream().map(Violation::id).toList());
     }
 
     @Test
     void testAllowsAnAllowedStringThatDeliberatelyDefaultsToNull() {
-        assertEquals(List.of(), validatorFor(NullableDatabaseConfig.class).run(new NullableDatabaseConfig()));
+        assertEquals(List.of(), validatorFor(NullableDatabaseConfig.class).validate(new NullableDatabaseConfig()));
     }
 
     @Test
@@ -162,12 +163,12 @@ class ConfigConstraintValidatorTest {
 
     @Test
     void testIgnoresConfigsThatDeclareNoConstraints() {
-        assertEquals(List.of(), validatorFor(TestFixtures.SimpleConfig.class).run(new TestFixtures.SimpleConfig()));
+        assertEquals(List.of(), validatorFor(TestFixtures.SimpleConfig.class).validate(new TestFixtures.SimpleConfig()));
     }
 
     @Test
     void testRejectsNaNWhenARangeIsDeclared() {
-        assertEquals(List.of("range.value"), validatorFor(NaNValueConfig.class).run(new NaNValueConfig()).stream().map(Violation::id).toList());
+        assertEquals(List.of("range.value"), validatorFor(NaNValueConfig.class).validate(new NaNValueConfig()).stream().map(Violation::id).toList());
     }
 
     @Test
@@ -182,7 +183,7 @@ class ConfigConstraintValidatorTest {
     void testReportsANullRequiredValue() {
         assertEquals(
             List.of("notnull.value"),
-            validatorFor(NotNullConfig.class).run(new NotNullConfig()).stream().map(Violation::id).toList()
+            validatorFor(NotNullConfig.class).validate(new NotNullConfig()).stream().map(Violation::id).toList()
         );
     }
 
@@ -199,12 +200,12 @@ class ConfigConstraintValidatorTest {
     }
 
     private List<String> idsOf(TestFixtures.ConstrainedConfig candidate) {
-        return validator.run(candidate).stream().map(Violation::id).toList();
+        return validator.validate(candidate).stream().map(Violation::id).toList();
     }
 
-    private static ConfigConstraintValidator validatorFor(Class<?> type) {
+    private static ConstraintValidator validatorFor(Class<?> type) {
         ConfigModel<?> model = TestFixtures.model(type);
-        return new ConfigConstraintValidator(model.fieldAccess(), model.fields(), model.metadata());
+        return new ConstraintValidator(model.fieldAccess(), model.metadata());
     }
 
     static class NaNValueConfig {
@@ -254,6 +255,6 @@ class ConfigConstraintValidatorTest {
     }
 
     private List<String> blankViolationIds(String value) {
-        return validatorFor(NotBlankConfig.class).run(new NotBlankConfig(value)).stream().map(Violation::id).toList();
+        return validatorFor(NotBlankConfig.class).validate(new NotBlankConfig(value)).stream().map(Violation::id).toList();
     }
 }

@@ -150,7 +150,7 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
             if (ownership == ConfigType.SERVER) {
                 Optional<T> pending = state.pending();
                 if (pending.isPresent()) {
-                    registration.guard().carryOverRestart(pending.orElseThrow(), next);
+                    registration.guard().keepRestartValues(pending.orElseThrow(), next);
                 }
             }
 
@@ -184,12 +184,12 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
         registration.guard().normalize(desired);
         registration.guard().validate(desired);
 
-        if (!registration.guard().changesRestart(state.canonical(), desired)) {
+        if (!registration.guard().hasRestartChanges(state.canonical(), desired)) {
             return new LocalChange<>(desired, null);
         }
 
         T active = state.copyOf(desired);
-        registration.guard().carryOverRestart(state.canonical(), active);
+        registration.guard().keepRestartValues(state.canonical(), active);
         registration.guard().validate(active);
 
         return new LocalChange<>(active, desired);
@@ -197,7 +197,7 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
 
     private LocalChange<T> localLoad(T desired) {
         if (registration.hasPendingRestartFile()) {
-            state.pending().ifPresent(pending -> registration.guard().carryOverRestart(pending, desired));
+            state.pending().ifPresent(pending -> registration.guard().keepRestartValues(pending, desired));
         }
         return localChange(desired);
     }

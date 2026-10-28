@@ -144,7 +144,7 @@ final class SyncedConfig<T> {
             T active = this.config.state().copyOf(candidate);
 
             if (this.config.pathResolver().type() != ConfigType.WORLD || this.config.state().remoteActive()) {
-                this.config.guard().carryOverRestart(current, active);
+                this.config.guard().keepRestartValues(current, active);
             }
 
             this.config.guard().validate(active);
