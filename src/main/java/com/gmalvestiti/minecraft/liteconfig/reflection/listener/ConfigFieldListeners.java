@@ -7,15 +7,23 @@ import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public final class ConfigFieldListeners<T> {
+
+    private static final MethodType LISTENER_TYPE =
+        MethodType.methodType(void.class, Object.class, Object.class, Object.class, boolean.class);
+    private static final Runnable NOOP = () -> { };
 
     private final ConfigScope scope;
     private final ConfigFieldAccess fieldAccess;
@@ -44,6 +52,10 @@ public final class ConfigFieldListeners<T> {
     }
 
     public Runnable enqueueChanged(T oldState, T newState, boolean fromSync) {
+        if (listeners.isEmpty()) {
+            return NOOP;
+        }
+
         return () -> {
             if (!closed) {
                 invoke(oldState, newState, fromSync);
@@ -76,9 +88,7 @@ public final class ConfigFieldListeners<T> {
                     oldState,
                     newState,
                     fromSync);
-            } catch (InvocationTargetException failure) {
-                report(failure.getCause() == null ? failure : failure.getCause());
-            } catch (IllegalAccessException | RuntimeException failure) {
+            } catch (Throwable failure) {
                 report(failure);
             }
         }
@@ -102,13 +112,13 @@ public final class ConfigFieldListeners<T> {
             Field[] chain = Arrays.copyOf(prefix, prefix.length + 1);
             chain[chain.length - 1] = field;
 
-            if (property.listenerProblem().isPresent()) {
-                throw invalid(field, scope, property.listenerProblem().get());
+            Optional<String> problem = property.listenerProblem();
+            if (problem.isPresent()) {
+                throw invalid(field, scope, problem.get());
             }
 
-            if (property.listener().isPresent()) {
-                listeners.add(new ConfigFieldListener(chain, property.listener().get()));
-            }
+            Optional<Method> listener = property.listener();
+            listener.ifPresent(method -> listeners.add(new ConfigFieldListener(chain, bind(method, field, scope))));
 
             if (fields.descendable(property)) {
                 collect(property.type(), fields, chain, ancestors, listeners, scope);
@@ -116,6 +126,14 @@ public final class ConfigFieldListeners<T> {
         }
 
         ancestors.remove(ownerType);
+    }
+
+    private static MethodHandle bind(Method method, Field field, ConfigScope scope) {
+        try {
+            return MethodHandles.lookup().unreflect(method).asType(LISTENER_TYPE);
+        } catch (IllegalAccessException | RuntimeException failure) {
+            throw invalid(field, scope, "the method is not accessible");
+        }
     }
 
     private static LiteConfigException invalid(Field field, ConfigScope scope, String reason) {

@@ -5,6 +5,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
+import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigObjectFactory;
 import com.gmalvestiti.minecraft.liteconfig.shared.PropertyPath;
 
@@ -115,15 +116,7 @@ public final class ConfigMetadataFactory {
             return null;
         }
 
-        try {
-            return described.field().get(defaultOwner);
-        } catch (IllegalAccessException failure) {
-            throw scope.exception(
-                ConfigError.REFLECTION_ACCESS,
-                failure,
-                described.fieldName(),
-                described.field().getDeclaringClass().getName());
-        }
+        return new ConfigFieldAccess(scope).read(described.field(), defaultOwner);
     }
 
     private static void rejectProblems(DeclaredConfig.Property described, ConfigScope scope) {

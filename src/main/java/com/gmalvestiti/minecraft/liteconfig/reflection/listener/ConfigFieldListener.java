@@ -1,19 +1,18 @@
 package com.gmalvestiti.minecraft.liteconfig.reflection.listener;
 
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
+import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.Objects;
 
-record ConfigFieldListener(Field[] chain, Method method) {
+record ConfigFieldListener(Field[] chain, MethodHandle handle) {
 
     void invokeIfChanged(
         ConfigFieldAccess fieldAccess,
         Object oldState,
         Object newState,
         boolean fromSync
-    ) throws IllegalAccessException, InvocationTargetException {
+    ) throws Throwable {
         Object oldOwner = ownerOf(fieldAccess, oldState);
         Object newOwner = ownerOf(fieldAccess, newState);
 
@@ -25,7 +24,7 @@ record ConfigFieldListener(Field[] chain, Method method) {
         }
 
         if (newOwner != null) {
-            method.invoke(newOwner, oldValue, newValue, fromSync);
+            handle.invokeExact(newOwner, oldValue, newValue, fromSync);
         }
     }
 
