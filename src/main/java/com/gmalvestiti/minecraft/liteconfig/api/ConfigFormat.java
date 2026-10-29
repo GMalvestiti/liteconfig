@@ -39,8 +39,8 @@ import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
  * }</pre>
  *
  * <p>The format also decides the file extension, so two config types that differ only by format
- * never collide on one file. TOML has no null literal: a {@code null} field is left out and
- * falls back to its default on the next load. JSON writes it as {@code null}.
+ * never collide on one file. TOML has no null literal, so saving a {@code null} field or array element
+ * fails rather than dropping data. JSON writes it as {@code null}.
  *
  * <p>Pick the format once, before players have config files on disk. Changing it later changes
  * the file name, so the old file is left behind untouched and the new one starts from defaults.

@@ -13,14 +13,18 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 
 import java.io.StringReader;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 final class TomlTextFormat implements ConfigTextFormat {
 
     static final ConfigTextFormat INSTANCE = new TomlTextFormat();
+
+    private static final Pattern INTEGER_LITERAL = Pattern.compile("-?\\d+");
 
     private TomlTextFormat() {}
 
@@ -47,8 +51,13 @@ final class TomlTextFormat implements ConfigTextFormat {
         for (Map.Entry<String, JsonElement> property : object.entrySet()) {
             JsonElement value = property.getValue();
             String key = property.getKey();
-            if (value.isJsonNull() || skipVersion && ConfigMigrations.VERSION_KEY.equals(key)) {
+
+            if (skipVersion && ConfigMigrations.VERSION_KEY.equals(key)) {
                 continue;
+            }
+
+            if (value.isJsonNull()) {
+                throw new IllegalArgumentException("TOML cannot store a null value for '" + key + "'");
             }
 
             List<String> path = List.of(key);
@@ -82,7 +91,7 @@ final class TomlTextFormat implements ConfigTextFormat {
 
             for (JsonElement item : element.getAsJsonArray()) {
                 if (item.isJsonNull()) {
-                    throw new IllegalArgumentException("TOML arrays cannot contain null values");
+                    throw new IllegalArgumentException("TOML cannot store a null array element");
                 }
 
                 values.add(toTomlValue(item));
@@ -105,20 +114,20 @@ final class TomlTextFormat implements ConfigTextFormat {
     }
 
     /**
-     * Keeps whole numbers whole. Written as one ternary the two branches would be promoted to a
-     * common type and every integer would land in the file as a float.
+     * Integer literals become {@code long} and are rejected when they overflow it, so they are never
+     * silently truncated. Other numbers are written as floating point.
      */
     private Object toTomlNumber(JsonPrimitive primitive) {
-        double value = primitive.getAsDouble();
-        // NaN and the infinities carry no '.', but they are not integers either.
-        if (hasFraction(primitive.getAsString()) || !Double.isFinite(value)) {
-            return value;
+        String literal = primitive.getAsString();
+        if (!INTEGER_LITERAL.matcher(literal).matches()) {
+            return primitive.getAsDouble();
         }
-        return primitive.getAsLong();
-    }
 
-    private boolean hasFraction(String literal) {
-        return literal.indexOf('.') >= 0 || literal.indexOf('e') >= 0 || literal.indexOf('E') >= 0;
+        try {
+            return new BigInteger(literal).longValueExact();
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException("TOML cannot store integer outside the long range: " + literal, overflow);
+        }
     }
 
     private CommentedConfig toTomlTable(JsonObject object) {

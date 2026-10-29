@@ -1,12 +1,17 @@
 package com.gmalvestiti.minecraft.liteconfig.storage;
 
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigFormat;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
+import com.gmalvestiti.minecraft.liteconfig.storage.format.ConfigTextFormat;
 import com.gmalvestiti.minecraft.liteconfig.support.TestFixtures;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -80,6 +85,41 @@ class ConfigTextFormatTest {
         assertEquals(java.util.List.of("a", "b", "c"), read.tags);
         assertEquals(0.25, read.section.ratio);
         assertFalse(read.section.enabled);
+    }
+
+    @Test
+    void testRejectsNullTomlFieldInsteadOfDroppingIt(@TempDir Path tempDir) {
+        ConfigStorage<TestFixtures.TomlConfig> storage =
+            TestFixtures.storage(tempDir, TestFixtures.TomlConfig.class);
+        TestFixtures.TomlConfig written = new TestFixtures.TomlConfig();
+        written.displayName = null;
+
+        LiteConfigException failure = assertThrows(LiteConfigException.class, () -> storage.write(written));
+        assertEquals(ConfigError.IO_SAVE_FAILURE, failure.error());
+    }
+
+    @Test
+    void testRoundTripsIntegerAtTheTypeBoundary(@TempDir Path tempDir) {
+        ConfigStorage<TestFixtures.TomlConfig> storage =
+            TestFixtures.storage(tempDir, TestFixtures.TomlConfig.class);
+        TestFixtures.TomlConfig written = new TestFixtures.TomlConfig();
+        written.volume = Integer.MIN_VALUE;
+
+        storage.write(written);
+        TestFixtures.TomlConfig read = storage.read();
+
+        assertEquals(Integer.MIN_VALUE, read.volume);
+    }
+
+    @Test
+    void testRejectsIntegerBeyondLongRangeInsteadOfTruncatingIt() {
+        JsonObject tree = new JsonObject();
+        tree.add("value", new JsonPrimitive(new BigInteger("18446744073709551616")));
+
+        ConfigTextFormat format = ConfigTextFormat.of(ConfigFormat.TOML);
+
+        assertThrows(IllegalArgumentException.class,
+            () -> format.writeTree(tree, TestFixtures.TomlConfig.class));
     }
 
     @Test
