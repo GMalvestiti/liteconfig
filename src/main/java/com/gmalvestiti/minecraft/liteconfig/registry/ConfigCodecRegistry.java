@@ -3,6 +3,7 @@ package com.gmalvestiti.minecraft.liteconfig.registry;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
@@ -14,8 +15,10 @@ import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 
 import java.io.IOException;
-import java.lang.reflect.Type;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -169,10 +172,24 @@ public final class ConfigCodecRegistry {
     public synchronized void lockForPlanning(Type type) {
         Type planned = requireType(type);
 
-        if (plannedTypes.add(planned) && planned instanceof ParameterizedType parameterized) {
-            for (Type argument : parameterized.getActualTypeArguments()) {
-                lockForPlanning(argument);
+        if (!plannedTypes.add(planned)) {
+            return;
+        }
+
+        switch (planned) {
+            case ParameterizedType parameterized -> {
+                for (Type argument : parameterized.getActualTypeArguments()) {
+                    lockForPlanning(argument);
+                }
             }
+            case GenericArrayType array -> lockForPlanning(array.getGenericComponentType());
+            case WildcardType wildcard -> {
+                for (Type bound : wildcard.getUpperBounds()) {
+                    lockForPlanning(bound);
+                }
+            }
+            case Class<?> raw when raw.isArray() -> lockForPlanning(raw.getComponentType());
+            default -> { }
         }
     }
 
@@ -273,10 +290,7 @@ public final class ConfigCodecRegistry {
         @SuppressWarnings("unchecked")
         public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> target) {
             return type.equals(target.getType())
-                ? (TypeAdapter<T>) new TreeCodecAdapter(
-                    codec,
-                    gson.getAdapter(JsonElement.class),
-                    gson.getDelegateAdapter(this, target)).nullSafe()
+                ? (TypeAdapter<T>) new TreeCodecAdapter(codec, gson.getAdapter(JsonElement.class)).nullSafe()
                 : null;
         }
     }
@@ -285,39 +299,25 @@ public final class ConfigCodecRegistry {
 
         private final Codec<Object> codec;
         private final TypeAdapter<JsonElement> elements;
-        private final TypeAdapter<Object> fallback;
 
         @SuppressWarnings("unchecked")
-        private TreeCodecAdapter(
-            Codec<?> codec,
-            TypeAdapter<JsonElement> elements,
-            TypeAdapter<?> fallback
-        ) {
+        private TreeCodecAdapter(Codec<?> codec, TypeAdapter<JsonElement> elements) {
             this.codec = (Codec<Object>) codec;
             this.elements = elements;
-            this.fallback = (TypeAdapter<Object>) fallback;
         }
 
         @Override
         public void write(JsonWriter output, Object value) throws IOException {
-            try {
-                JsonElement tree = codec.encodeStart(JsonOps.INSTANCE, value)
-                    .getOrThrow(IllegalArgumentException::new);
-                elements.write(output, tree);
-            } catch (IllegalArgumentException rejected) {
-                fallback.write(output, value);
-            }
+            JsonElement tree = codec.encodeStart(JsonOps.INSTANCE, value)
+                .getOrThrow(IllegalStateException::new);
+            elements.write(output, tree);
         }
 
         @Override
         public Object read(JsonReader input) throws IOException {
             JsonElement tree = elements.read(input);
-            try {
-                return codec.parse(JsonOps.INSTANCE, tree)
-                    .getOrThrow(IllegalArgumentException::new);
-            } catch (IllegalArgumentException rejected) {
-                return fallback.fromJsonTree(tree);
-            }
+            return codec.parse(JsonOps.INSTANCE, tree)
+                .getOrThrow(JsonParseException::new);
         }
     }
 }

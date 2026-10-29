@@ -9,6 +9,8 @@ import com.gmalvestiti.minecraft.liteconfig.registry.ConfigCodecRegistry;
 import com.gmalvestiti.minecraft.liteconfig.support.ConfigRegistryIsolation;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
@@ -100,7 +102,7 @@ class ConfigCodecRegistryTest {
     }
 
     @Test
-    void testFallsBackToReflectionWhenACustomCodecRejectsAValue(@TempDir Path tempDir) {
+    void testCodecRejectionsFailInsteadOfFallingBackToReflection() {
         Codec<FallbackValue> codec = Codec.INT.flatXmap(
             value -> value >= 0
                 ? DataResult.success(new FallbackValue(value))
@@ -108,18 +110,17 @@ class ConfigCodecRegistryTest {
             value -> value.value() >= 0
                 ? DataResult.success(value.value())
                 : DataResult.error(() -> "negative value"));
-        ConfigHolder<FallbackCodecConfig> holder = LiteConfig.holder(
-                FallbackCodecConfig.class,
-                codecs -> codecs.registerCodec(FallbackValue.class, codec))
-            .modId("mod")
-            .baseDir(tempDir)
-            .create();
+        LiteConfig.codecs().registerCodec(FallbackValue.class, codec);
 
-        holder.updateAndSave(config -> config.value = new FallbackValue(-4));
-        holder.update(config -> config.value = new FallbackValue(2));
-        holder.load();
+        FallbackCodecConfig config = new FallbackCodecConfig();
+        config.value = new FallbackValue(-4);
+        JsonObject tree = new JsonObject();
+        tree.addProperty("value", -4);
 
-        assertEquals(new FallbackValue(-4), holder.data().value);
+        assertThrows(IllegalStateException.class, () -> ConfigSerialization.toTree(config));
+        assertThrows(
+            JsonParseException.class,
+            () -> ConfigSerialization.fromTree(tree, FallbackCodecConfig.class));
     }
 
     @Test
@@ -265,6 +266,15 @@ class ConfigCodecRegistryTest {
     }
 
     @Test
+    void testRejectsRegistrationForArrayTypeArguments() {
+        ConfigFieldPlan.of(NestedFreezeConfig.class);
+
+        assertThrows(
+            IllegalStateException.class,
+            () -> LiteConfig.codecs().registerCodec(NestedFrozenValue.class, frozenNestedCodec()));
+    }
+
+    @Test
     void testParameterizedValuesUseOnlyAnExactCodecRegistration() throws NoSuchFieldException {
         Type valueType = GenericConfig.class.getDeclaredField("value").getGenericType();
         Codec<GenericValue<?>> codec = Codec.STRING.xmap(
@@ -394,6 +404,17 @@ class ConfigCodecRegistryTest {
     }
 
     public record FrozenValue(int value) {}
+
+    @Config(name = "nested-freeze")
+    public static class NestedFreezeConfig {
+        public List<NestedFrozenValue[]> value = List.of();
+    }
+
+    public record NestedFrozenValue(int value) {}
+
+    private static Codec<NestedFrozenValue> frozenNestedCodec() {
+        return Codec.INT.xmap(NestedFrozenValue::new, NestedFrozenValue::value);
+    }
 
     public record UnplannedValue(int value) {}
 
