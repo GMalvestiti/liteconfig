@@ -85,8 +85,8 @@ final class SyncedConfig<T> {
     }
 
     private Snapshot snapshot(T state) {
-        byte[] data = syncSchema.encode(state);
-        return new Snapshot(ConfigBytes.trusted(data), ConfigBytes.trusted(hash(data)));
+        ConfigBytes data = ConfigBytes.of(syncSchema.encode(state));
+        return new Snapshot(data, data.digest(SHA_256));
     }
 
     Snapshot cachedSnapshot() {
@@ -125,7 +125,7 @@ final class SyncedConfig<T> {
         }
         ConfigBytes persisted = restartStore().read();
         return compatibleRestartCache(persisted)
-            && ConfigBytes.trusted(hash(persisted.bytes())).equals(expectedHash) ? persisted : null;
+            && persisted.digest(SHA_256).equals(expectedHash) ? persisted : null;
     }
 
     Prepared<T> prepare(ConfigBytes payload) {
@@ -416,10 +416,6 @@ final class SyncedConfig<T> {
                 scratch.release();
             }
         }
-    }
-
-    private static byte[] hash(byte[] data) {
-        return SHA_256.hashBytes(data).asBytes();
     }
 
     record Snapshot(ConfigBytes data, ConfigBytes hash) {}

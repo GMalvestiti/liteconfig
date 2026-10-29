@@ -105,17 +105,6 @@ class ConfigSyncS2CPacketTest {
     }
 
     @Test
-    void testConfigBytesDefensivelyCopiesInputAndOutput() {
-        byte[] source = {1, 2, 3};
-        ConfigBytes value = ConfigBytes.of(source);
-        source[0] = 9;
-        byte[] returned = value.bytes();
-        returned[1] = 9;
-
-        assertEquals(ConfigBytes.of(new byte[] {1, 2, 3}), value);
-    }
-
-    @Test
     void testRejectsTruncatedPacketHeaders() {
         var buffer = Unpooled.buffer();
         try {

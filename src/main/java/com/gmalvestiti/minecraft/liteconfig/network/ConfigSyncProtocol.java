@@ -1,10 +1,9 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
+import com.google.common.base.Utf8;
 import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.codec.ByteBufCodecs;
-
-import java.nio.charset.StandardCharsets;
 
 public final class ConfigSyncProtocol {
 
@@ -44,14 +43,12 @@ public final class ConfigSyncProtocol {
             throw new IllegalArgumentException("Config sync id must not be blank");
         }
 
-        int bytes = id.getBytes(StandardCharsets.UTF_8).length;
-
-        if (bytes > MAX_ID_BYTES) {
+        if (Utf8.encodedLength(id) > MAX_ID_BYTES) {
             throw new IllegalArgumentException("Config sync id exceeds " + MAX_ID_BYTES + " UTF-8 bytes");
         }
     }
 
     static int entryBytes(String id, ConfigBytes value) {
-        return id.getBytes(StandardCharsets.UTF_8).length + value.size() + 10;
+        return Utf8.encodedLength(id) + value.size() + 10;
     }
 }

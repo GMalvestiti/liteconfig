@@ -1,5 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.network;
 
+import com.google.common.hash.HashFunction;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
@@ -8,31 +9,25 @@ import java.util.Arrays;
 public final class ConfigBytes {
 
     private final byte[] bytes;
-    private final int hashCode;
 
-    private ConfigBytes(byte[] bytes, boolean copy) {
-        this.bytes = copy ? bytes.clone() : bytes;
-        this.hashCode = Arrays.hashCode(this.bytes);
+    private ConfigBytes(byte[] bytes) {
+        this.bytes = bytes;
     }
 
     public static ConfigBytes of(byte[] bytes) {
-        return new ConfigBytes(bytes, true);
+        return new ConfigBytes(bytes);
     }
 
-    public static ConfigBytes trusted(byte[] bytes) {
-        return new ConfigBytes(bytes, false);
+    ConfigBytes digest(HashFunction function) {
+        return new ConfigBytes(function.hashBytes(bytes).asBytes());
     }
 
-    public byte[] bytes() {
-        return bytes.clone();
+    byte[] bytes() {
+        return bytes;
     }
 
     public int size() {
         return bytes.length;
-    }
-
-    public void writeTo(ByteBuf buffer) {
-        buffer.writeBytes(bytes);
     }
 
     public ByteBuf readBuffer() {
@@ -46,6 +41,6 @@ public final class ConfigBytes {
 
     @Override
     public int hashCode() {
-        return hashCode;
+        return Arrays.hashCode(bytes);
     }
 }

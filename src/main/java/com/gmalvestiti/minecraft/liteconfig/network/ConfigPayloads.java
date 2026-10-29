@@ -30,8 +30,6 @@ public final class ConfigPayloads {
 
         int batchBytes = 0;
         for (Map.Entry<String, ConfigBytes> entry : source.entrySet()) {
-
-            validateEntry(entry.getKey(), entry.getValue());
             int entryBytes = ConfigSyncProtocol.entryBytes(entry.getKey(), entry.getValue());
 
             if (!batch.isEmpty() && (batch.size() == ENTRIES_PER_PACKET
@@ -55,12 +53,10 @@ public final class ConfigPayloads {
         ByteBufCodecs.VAR_INT.encode(buffer, entries.size());
 
         for (Map.Entry<String, ConfigBytes> entry : entries.entrySet()) {
-            validateEntry(entry.getKey(), entry.getValue());
-
             ByteBufCodecs.STRING_UTF8.encode(buffer, entry.getKey());
             ByteBufCodecs.VAR_INT.encode(buffer, entry.getValue().size());
 
-            entry.getValue().writeTo(buffer);
+            buffer.writeBytes(entry.getValue().bytes());
         }
     }
 
@@ -105,7 +101,7 @@ public final class ConfigPayloads {
             byte[] bytes = new byte[length];
             buffer.readBytes(bytes);
 
-            if (entries.put(id, ConfigBytes.trusted(bytes)) != null) {
+            if (entries.put(id, ConfigBytes.of(bytes)) != null) {
                 throw new DecoderException("Duplicate config sync id " + id);
             }
 
@@ -143,22 +139,21 @@ public final class ConfigPayloads {
         }
 
         Map<String, ConfigBytes> copy = LinkedHashMap.newLinkedHashMap(entries.size());
+        int packetBytes = 0;
 
-        entries.forEach((id, value) -> {
+        for (Map.Entry<String, ConfigBytes> entry : entries.entrySet()) {
+            String id = entry.getKey();
+            ConfigBytes value = entry.getValue();
             validateEntry(id, value, maximumValueBytes, valueLabel);
 
-            if (copy.put(id, value) != null) {
-                throw new IllegalArgumentException("Duplicate config sync id " + id);
-            }
-        });
-
-        int packetBytes = 0;
-        for (Map.Entry<String, ConfigBytes> entry : copy.entrySet()) {
-
-            packetBytes += ConfigSyncProtocol.entryBytes(entry.getKey(), entry.getValue());
+            packetBytes += ConfigSyncProtocol.entryBytes(id, value);
 
             if (packetBytes > ConfigSyncProtocol.MAX_PACKET_BYTES) {
                 throw new IllegalArgumentException("Config sync packet exceeds " + ConfigSyncProtocol.MAX_PACKET_BYTES + " bytes");
+            }
+
+            if (copy.put(id, value) != null) {
+                throw new IllegalArgumentException("Duplicate config sync id " + id);
             }
         }
 
@@ -181,10 +176,6 @@ public final class ConfigPayloads {
         });
 
         return Collections.unmodifiableSet(copy);
-    }
-
-    private static void validateEntry(String id, ConfigBytes value) {
-        validateEntry(id, value, ConfigSyncProtocol.MAX_CONFIG_BYTES, "config sync payload");
     }
 
     private static void validateEntry(

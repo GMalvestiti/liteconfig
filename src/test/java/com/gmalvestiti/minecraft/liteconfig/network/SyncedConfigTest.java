@@ -532,7 +532,7 @@ class SyncedConfigTest {
         SyncedConfig<PartiallySyncedConfig> receiver = SyncedConfig.of(target);
         ConfigBytes valid = SyncedConfig.of(source).cachedSnapshot().data();
         apply(receiver, valid);
-        byte[] stale = valid.bytes();
+        byte[] stale = valid.bytes().clone();
         stale[0] ^= 1;
 
         assertThrows(LiteConfigException.class, () -> receiver.prepare(ConfigBytes.of(stale)));
