@@ -60,7 +60,7 @@ public final class TestFixtures {
     public static <T> ConfigStorage<T> storage(Path baseDirectory, Class<T> configType) {
         return new ConfigStorage<>(
             configType,
-            new ConfigPathResolver(baseDirectory, SCOPE, new ConfigFileOwnership()),
+            new ConfigPathResolver(configType, baseDirectory, SCOPE, new ConfigFileOwnership()),
             SCOPE
         );
     }
