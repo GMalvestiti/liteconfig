@@ -47,7 +47,7 @@ class ConfigEngineTest {
         ConfigEngine<TestFixtures.ConfigWithExtension> engine = engine(tempDir);
         TestFixtures.ConfigWithExtension defaults = engine.initialize();
 
-        TestFixtures.ConfigWithExtension result = engine.load(defaults);
+        TestFixtures.ConfigWithExtension result = engine.loadOr(() -> defaults);
 
         assertSame(defaults, result);
         assertTrue(result.afterLoadCalled);

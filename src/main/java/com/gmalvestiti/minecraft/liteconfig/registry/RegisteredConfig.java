@@ -17,7 +17,6 @@ import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigExceptionHandler;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigOutcome;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
-import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigFileOwnership;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigPathResolver;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigStorage;
@@ -48,6 +47,7 @@ public final class RegisteredConfig<T> {
     private final ConfigPathResolver pathResolver;
     private final T declaredDefaults;
     private final RegistrationAccess<T> access;
+    private final ConfigLoadPipeline<T> loader;
 
     public RegisteredConfig(
         ConfigModel<T> model,
@@ -71,7 +71,12 @@ public final class RegisteredConfig<T> {
         this.state = state;
         this.pathResolver = pathResolver;
         this.declaredDefaults = declaredDefaults;
+        this.loader = new ConfigLoadPipeline<>(model, engine, exceptionHandler, guard);
         this.access = new RegistrationAccess<>(this);
+    }
+
+    ConfigLoadPipeline<T> loader() {
+        return loader;
     }
 
     public ConfigModel<T> model() {
@@ -183,21 +188,11 @@ public final class RegisteredConfig<T> {
                 ConfigSyncRegistry.refreshLocalContext(this);
 
                 if (isLocallyWritable()) {
-                    ConfigOutcome<T> read = exceptionHandler.onRead(model.type(), () -> {
-                        T candidate = engine.load(declaredDefaults());
-                        guard.normalize(candidate);
-
-                        guard.validate(candidate);
-                        return candidate;
-                    });
+                    ConfigOutcome<T> read = loader.readValidated(this::declaredDefaults);
 
                     next = read.valueOr(this::declaredDefaults);
                     loadedSuccessfully = read.completed();
-                    T loaded = next;
-
-                    if (!read.ioLoadFailed()) {
-                        exceptionHandler.onWrite(() -> engine.saveLoaded(loaded));
-                    }
+                    loader.persist(read, next);
                 } else {
                     next = declaredDefaults();
                 }
@@ -270,7 +265,7 @@ public final class RegisteredConfig<T> {
             T declaredDefaults = StateCopies.isolated(stateCloner, defaults, model.scope());
 
             ConfigState<T> state = new ConfigState<>(stateCloner, model.scope(),
-                initialStateOf(model, engine, exceptionHandler, guard,
+                initialState(new ConfigLoadPipeline<>(model, engine, exceptionHandler, guard),
                     () -> StateCopies.isolated(stateCloner, declaredDefaults, model.scope()),
                     pathResolver.isLocallyWritable()));
 
@@ -316,11 +311,8 @@ public final class RegisteredConfig<T> {
         return (StateCloner<T>) ConfigObjectFactory.newInstance(declaration.stateCloner(), scope);
     }
 
-    private static <T> T initialStateOf(
-        ConfigModel<T> model,
-        ConfigEngine<T> engine,
-        ConfigExceptionHandler exceptionHandler,
-        ConfigGuard<T> guard,
+    private static <T> T initialState(
+        ConfigLoadPipeline<T> loader,
         Supplier<T> defaults,
         boolean locallyWritable
     ) {
@@ -328,31 +320,9 @@ public final class RegisteredConfig<T> {
             return defaults.get();
         }
 
-        T initial;
-        boolean ioLoadFailed;
-        try {
-            ConfigOutcome<T> read = exceptionHandler.onRead(model.type(), () -> {
-                T candidate = engine.load(defaults.get());
-
-                guard.normalize(candidate);
-                guard.validate(candidate);
-
-                return candidate;
-            });
-            initial = read.valueOr(defaults);
-            ioLoadFailed = read.ioLoadFailed();
-        } catch (LiteConfigException failure) {
-            if (!failure.defect()) {
-                model.scope().logError(failure.rawMessage(), failure);
-            }
-
-            throw failure;
-        }
-
-        if (!ioLoadFailed) {
-            exceptionHandler.onWrite(() -> engine.save(initial));
-        }
-
+        ConfigOutcome<T> read = loader.readValidated(defaults);
+        T initial = read.valueOr(defaults);
+        loader.persist(read, initial);
         return initial;
     }
 }

@@ -12,7 +12,6 @@ import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigOutcome;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
-import com.gmalvestiti.minecraft.liteconfig.exception.LiteConfigException;
 import com.gmalvestiti.minecraft.liteconfig.shared.ConfigOperation;
 
 import java.nio.file.Path;
@@ -25,10 +24,6 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 final class RegistrationAccess<T> implements ConfigHolder<T> {
-
-    private static final String READ_ONLY = "read-only";
-    private static final List<Violation> READ_ONLY_VIOLATIONS = List.of(Violation.of("holder.read-only",
-        "A read-only config cannot be updated locally"));
 
     private volatile RegisteredConfig<T> registration;
     private final ConfigState<T> state;
@@ -85,52 +80,41 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
     @Override
     public void load() {
         operateWithCallbacks(callbacks -> {
-            String access = mutationAccess(ConfigOperation.LOAD);
-            if (access != null) {
-                reject(ConfigOperation.LOAD, access);
-            } else {
-                loadState(callbacks);
-            }
+            refusal(ConfigOperation.LOAD).ifPresentOrElse(
+                reason -> reject(ConfigOperation.LOAD, reason), () -> loadState(callbacks));
             return null;
         });
     }
 
     private void loadState(RegisteredConfig.CallbackQueue callbacks) {
-        try {
-            ConfigOutcome<LocalChange<T>> read = registration.exceptionHandler().onRead(
-                registration.model().type(), () -> localLoad(registration.engine().load()));
+        ConfigOutcome<LocalChange<T>> read = registration.loader().read(
+            () -> localLoad(registration.engine().load()));
 
-            LocalChange<T> loaded = read.valueOr(() -> localLoad(registration.declaredDefaults()));
+        LocalChange<T> loaded = read.valueOr(() -> localLoad(registration.declaredDefaults()));
 
-            if (read.completed()) {
-                publishLocalChange(loaded, ConfigOperation.LOAD, callbacks);
-                logCompleted(ConfigOperation.LOAD);
-            } else {
-                state.replaceLocal(loaded.active(), loaded.pending(),
-                    registration.pathResolver().restartPath());
-            }
-        } catch (LiteConfigException failure) {
-            if (!failure.defect()) {
-                configScope.logError(failure.rawMessage(), failure);
-            }
-            throw failure;
+        if (read.completed()) {
+            publishLocalChange(loaded, ConfigOperation.LOAD, callbacks);
+            logCompleted(ConfigOperation.LOAD);
+        } else {
+            state.replaceLocal(loaded.active(), loaded.pending(),
+                registration.pathResolver().restartPath());
         }
     }
 
     @Override
     public UpdateResult update(Consumer<T> mutator) {
-        return update(mutator, false);
+        return applyUpdate(mutator, false);
     }
 
     @Override
     public UpdateResult updateAndSave(Consumer<T> mutator) {
-        return update(mutator, true);
+        return applyUpdate(mutator, true);
     }
 
-    private UpdateResult update(Consumer<T> mutator, boolean save) {
+    private UpdateResult applyUpdate(Consumer<T> mutator, boolean save) {
         return operateWithCallbacks(callbacks -> {
-            String access = mutationAccess(ConfigOperation.UPDATE);
-            return access == null ? updateState(mutator, save, callbacks) : refuseUpdate(access);
+            Optional<String> reason = refusal(ConfigOperation.UPDATE);
+            return reason.map(this::refuseUpdate).orElseGet(() -> updateState(mutator, save, callbacks));
         });
     }
 
@@ -218,12 +202,8 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
     @Override
     public void save() {
         operateWithCallbacks(callbacks -> {
-            String access = mutationAccess(ConfigOperation.SAVE);
-            if (access == null) {
-                saveState(callbacks);
-            } else {
-                reject(ConfigOperation.SAVE, access);
-            }
+            refusal(ConfigOperation.SAVE).ifPresentOrElse(
+                reason -> reject(ConfigOperation.SAVE, reason), () -> saveState(callbacks));
             return null;
         });
     }
@@ -252,7 +232,6 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
             callbacks.enqueue(() -> current.holderEvents().notifyUpdated(transition.published()));
         }
         callbacks.enqueue(current.syncNotifier()::notifyLocalChange);
-        callbacks.enqueue(current.syncNotifier()::notifyLocalChange);
     }
 
     private void notifySaved(T published, RegisteredConfig.CallbackQueue callbacks) {
@@ -261,27 +240,27 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
         callbacks.enqueue(() -> current.holderEvents().notifySaved(published));
     }
 
-    private String mutationAccess(ConfigOperation operation) {
+    private Optional<String> refusal(ConfigOperation operation) {
         if (state.remoteActive()) {
-            return "remote";
+            return Optional.of("remote");
         }
 
         if (!registration.isLocallyWritable()) {
-            return "inactive";
+            return Optional.of("inactive");
         }
 
-        return operation != ConfigOperation.SAVE && readOnly ? READ_ONLY : null;
+        return operation != ConfigOperation.SAVE && readOnly ? Optional.of("read-only") : Optional.empty();
     }
 
-    private UpdateResult refuseUpdate(String access) {
-        reject(ConfigOperation.UPDATE, access);
-        return UpdateResult.rejected(READ_ONLY.equals(access) ? READ_ONLY_VIOLATIONS :
-            List.of(Violation.of("holder." + access, "A " + access + " config cannot be updated locally")));
+    private UpdateResult refuseUpdate(String reason) {
+        reject(ConfigOperation.UPDATE, reason);
+        return UpdateResult.rejected(List.of(Violation.of("holder." + reason,
+            "A " + reason + " config cannot be updated locally")));
     }
 
-    private void reject(ConfigOperation operation, String access) {
+    private void reject(ConfigOperation operation, String reason) {
         registration.exceptionHandler().reject(operation, configScope.exception(
-            ConfigError.HOLDER_OPERATION_UNSUPPORTED, access, operation.displayName()));
+            ConfigError.HOLDER_OPERATION_UNSUPPORTED, reason, operation.displayName()));
     }
 
     <V> V operate(Supplier<V> operation) {

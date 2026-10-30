@@ -9,7 +9,6 @@ import com.gmalvestiti.minecraft.liteconfig.engine.state.StateCopies;
 import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigObjectFactory;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigStorage;
 
-import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -40,15 +39,10 @@ public final class ConfigEngine<T> {
     }
 
     public T load() {
-        return load(this::initialize);
+        return loadOr(this::initialize);
     }
 
-    public T load(T defaults) {
-        Objects.requireNonNull(defaults, "defaults");
-        return load(() -> defaults);
-    }
-
-    private T load(Supplier<T> defaults) {
+    public T loadOr(Supplier<T> defaults) {
         T loaded = storage.read();
 
         if (loaded == null) {
@@ -61,30 +55,19 @@ public final class ConfigEngine<T> {
     }
 
     public void save(T data) {
-        save(data, false);
+        storage.write(prepareSave(data, false, null), false);
     }
 
     public void saveLoaded(T data) {
-        save(data, true);
-    }
-
-    private void save(T data, boolean skipUnchanged) {
-        T candidate = data;
-        if (model.extensions().hasBeforeSave()) {
-            candidate = StateCopies.isolated(cloner, data, model.scope());
-            invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
-            normalizer.accept(candidate);
-        }
-
-        storage.write(candidate, skipUnchanged);
+        storage.write(prepareSave(data, false, null), true);
     }
 
     public void save(T data, Consumer<T> finish) {
-        storage.write(prepareSave(data, finish));
+        storage.write(prepareSave(data, true, finish), false);
     }
 
     public ConfigStorage.PreparedWrite prepareRestartWrite(T data, Consumer<T> finish) {
-        return storage.prepareRestartWrite(prepareSave(data, finish));
+        return storage.prepareRestartWrite(prepareSave(data, true, finish));
     }
 
     public T restartFileState(T defaults) {
@@ -92,15 +75,19 @@ public final class ConfigEngine<T> {
         return persisted == null ? defaults : persisted;
     }
 
-    private T prepareSave(T data, Consumer<T> finish) {
-        T candidate = StateCopies.isolated(cloner, data, model.scope());
+    private T prepareSave(T data, boolean isolate, Consumer<T> finish) {
+        boolean hook = model.extensions().hasBeforeSave();
+        T candidate = isolate || hook ? StateCopies.isolated(cloner, data, model.scope()) : data;
 
-        if (model.extensions().hasBeforeSave()) {
+        if (hook) {
             invoke(BEFORE_SAVE, candidate, ConfigExtension::beforeSave);
             normalizer.accept(candidate);
         }
 
-        finish.accept(candidate);
+        if (finish != null) {
+            finish.accept(candidate);
+        }
+
         return candidate;
     }
 
