@@ -17,7 +17,7 @@ Lite Config is a JSON5/TOML configuration library for Minecraft mods on Fabric a
 * **Version Migrations:** Uses stamped file revisions to upgrade older configs step-by-step without losing player data.
 * **Persistence Control:** Fully customize file paths, field names, automated comments, and ignored fields.
 
-**Outside Lite Config's Scope:**
+**Outside Lite Config's Scope (yet):**
 * **Config Screen:** Lite Config is a data-layer solution and doesn't render config screens by itself, allowing you to pair it with any UI library or custom screens.
 
 **Documentation:** [Wiki](https://github.com/GMalvestiti/liteconfig/wiki)

@@ -237,6 +237,20 @@ class ConfigMetadataFactoryTest {
     }
 
     @Test
+    void testTreatsClassesWithoutNoArgConstructorAsLeafValues() {
+        ConfigProperty property = metadataOf(PlatformFieldConfig.class).properties().get(0);
+
+        assertTrue(property.children().isEmpty());
+    }
+
+    @Test
+    void testTreatsRecordsWithoutCodecAsLeafValues() {
+        ConfigProperty property = metadataOf(RecordFieldConfig.class).properties().get(0);
+
+        assertTrue(property.children().isEmpty());
+    }
+
+    @Test
     void testRejectsConstraintsAppliedToUnsupportedTypes() {
         LiteConfigException rangeFailure = assertThrows(
             LiteConfigException.class, () -> metadataOf(InvalidRangeTypeConfig.class));
@@ -315,6 +329,27 @@ class ConfigMetadataFactoryTest {
     @Config(name = "final-field")
     static class FinalFieldConfig {
         final int value = 1;
+    }
+
+    @Config(name = "platform-field")
+    static class PlatformFieldConfig {
+        NoDefaultConstructor value = new NoDefaultConstructor(1);
+    }
+
+    @Config(name = "record-field")
+    static class RecordFieldConfig {
+        PlainRecord value = new PlainRecord(1);
+    }
+
+    record PlainRecord(int id) {
+    }
+
+    static final class NoDefaultConstructor {
+        final int id;
+
+        NoDefaultConstructor(int id) {
+            this.id = id;
+        }
     }
 
     @Config(name = "duplicate-entry")

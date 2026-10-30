@@ -74,8 +74,13 @@ public final class PersistedFields {
     }
 
     public static boolean descendable(Type type) {
+        Class<?> section = sectionCandidate(type);
+        return section != null && isSection(section);
+    }
+
+    private static Class<?> sectionCandidate(Type type) {
         if (type == null || LiteConfig.codecs().find(type).isPresent()) {
-            return false;
+            return null;
         }
 
         Class<?> rawType = switch (type) {
@@ -91,7 +96,26 @@ public final class PersistedFields {
             && !rawType.isEnum()
             && !rawType.getName().startsWith("java.")
             && !Collection.class.isAssignableFrom(rawType)
-            && !Map.class.isAssignableFrom(rawType);
+            && !Map.class.isAssignableFrom(rawType)
+            ? rawType
+            : null;
+    }
+
+    private static boolean isSection(Class<?> type) {
+        if (type.isRecord()) {
+            return false;
+        }
+
+        if (type.isInterface() || Modifier.isAbstract(type.getModifiers())) {
+            return true;
+        }
+
+        try {
+            type.getDeclaredConstructor();
+            return true;
+        } catch (NoSuchMethodException | SecurityException e) {
+            return false;
+        }
     }
 
     private static boolean isPersisted(Field field) {
