@@ -227,7 +227,7 @@ public final class ConfigRegistry {
                 try {
                     registration.model().listeners().close();
                 } finally {
-                    registration.pathResolver().closeForConfig(registration.model().type());
+                    registration.pathResolver().close();
                 }
             }
         }

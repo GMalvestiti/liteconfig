@@ -10,7 +10,23 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class ConfigFileOwnership {
 
+    private static final boolean FOLD_CASE = foldsCase(System.getProperty("os.name", ""));
+
     private final Map<String, OwnershipClaim> owners = new ConcurrentHashMap<>();
+    private final boolean foldCase;
+
+    public ConfigFileOwnership() {
+        this(FOLD_CASE);
+    }
+
+    ConfigFileOwnership(boolean foldCase) {
+        this.foldCase = foldCase;
+    }
+
+    private static boolean foldsCase(String osName) {
+        String name = osName.toLowerCase(Locale.ROOT);
+        return name.contains("win") || name.contains("mac") || name.contains("darwin");
+    }
 
     public void claim(Class<?> configType, Path file, ConfigScope scope) {
         OwnershipClaim claim = owners.compute(keyOf(file), (key, current) -> {
@@ -41,7 +57,8 @@ public final class ConfigFileOwnership {
     }
 
     private String keyOf(Path file) {
-        return file.toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
+        String key = file.toAbsolutePath().normalize().toString();
+        return foldCase ? key.toLowerCase(Locale.ROOT) : key;
     }
 
     private record OwnershipClaim(Class<?> owner, int references) {}

@@ -138,7 +138,7 @@ public final class RegisteredConfig<T> {
     }
 
     public boolean isLocallyWritable() {
-        return pathResolver.isLocallyWritable(model.type());
+        return pathResolver.isLocallyWritable();
     }
 
     public T declaredDefaults() {
@@ -163,11 +163,11 @@ public final class RegisteredConfig<T> {
     }
 
     public boolean hasPendingRestartFile() {
-        return state.pendingAt(pathResolver.restartPathForConfig(model.type()));
+        return state.pendingAt(pathResolver.restartPath());
     }
 
     void worldContext(Path worldRoot, boolean notify) {
-        if (model.type().getAnnotation(Config.class).type() != ConfigType.WORLD) {
+        if (pathResolver.type() != ConfigType.WORLD) {
             return;
         }
 
@@ -176,7 +176,7 @@ public final class RegisteredConfig<T> {
             boolean loadedSuccessfully = false;
 
             try {
-                if (!pathResolver.bindWorld(model.type(), worldRoot)) {
+                if (!pathResolver.bindWorld(worldRoot)) {
                     return;
                 }
 
@@ -202,7 +202,7 @@ public final class RegisteredConfig<T> {
                     next = declaredDefaults();
                 }
             } catch (RuntimeException | Error failure) {
-                pathResolver.bindWorld(model.type(), null);
+                pathResolver.bindWorld(null);
                 ConfigSyncRegistry.refreshLocalContext(this);
                 state.replaceLocal(declaredDefaults(), null, null);
                 throw failure;
@@ -272,7 +272,7 @@ public final class RegisteredConfig<T> {
             ConfigState<T> state = new ConfigState<>(stateCloner, model.scope(),
                 initialStateOf(model, engine, exceptionHandler, guard,
                     () -> StateCopies.isolated(stateCloner, declaredDefaults, model.scope()),
-                    pathResolver.isLocallyWritable(model.type())));
+                    pathResolver.isLocallyWritable()));
 
             ConfigEventNotifier<T> holderEvents = new ConfigEventNotifier<>(model.scope(), state.operationLock());
 
@@ -298,7 +298,7 @@ public final class RegisteredConfig<T> {
         } catch (RuntimeException | Error failure) {
             try {
                 if (created == null) {
-                    pathResolver.closeForConfig(model.type());
+                    pathResolver.close();
                 } else {
                     created.access.close();
                 }

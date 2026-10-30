@@ -463,7 +463,7 @@ class ConfigSyncLimitsTest {
             RegisteredConfig<WorldPayloadConfig> config = RegisteredConfigs.create(new ConfigSettings<>(
                 WorldPayloadConfig.class, new ConfigScope("reserved" + index), directory));
             reservations.add(config.access());
-            config.writing(() -> config.pathResolver().bindWorld(WorldPayloadConfig.class, directory.resolve("world")));
+            config.writing(() -> config.pathResolver().bindWorld(directory.resolve("world")));
             ConfigSyncRegistry.register(config);
             assertTrue(ConfigSyncRegistry.get(config.model().syncId()).wraps(config));
         }

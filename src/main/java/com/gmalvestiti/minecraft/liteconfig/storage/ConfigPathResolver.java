@@ -9,29 +9,26 @@ import com.gmalvestiti.minecraft.liteconfig.platform.Platform;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.Map;
-import java.util.Locale;
 import java.util.Objects;
+import java.util.Locale;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public final class ConfigPathResolver {
 
+    private final Class<?> configType;
     private final ConfigScope scope;
     private final Path baseDirectory;
     private final ConfigFileOwnership ownership;
-    private final Map<Class<?>, ConfigPath> paths = new ConcurrentHashMap<>();
-    private final Map<Class<?>, FileClaim> claims = new ConcurrentHashMap<>();
+    private final ConfigType type;
+    private final Path relativePath;
+    private final Path installationPath;
+    private final Path pendingRestartPath;
+    private final AtomicReference<Path> claimed = new AtomicReference<>();
     private volatile Path worldDirectory;
+    private volatile Path worldPath;
     private volatile boolean closed;
-    private volatile Class<?> primaryConfigType;
-
-    public ConfigPathResolver(Path baseDirectory, ConfigScope scope, ConfigFileOwnership ownership) {
-        this.baseDirectory = baseDirectory.toAbsolutePath().normalize();
-        this.scope = scope;
-        this.ownership = ownership;
-    }
 
     public ConfigPathResolver(
         Class<?> configType,
@@ -39,8 +36,21 @@ public final class ConfigPathResolver {
         ConfigScope scope,
         ConfigFileOwnership ownership
     ) {
-        this(baseDirectory, scope, ownership);
-        primaryConfigType = Objects.requireNonNull(configType, "configType");
+        this.configType = Objects.requireNonNull(configType, "configType");
+        this.baseDirectory = baseDirectory.toAbsolutePath().normalize();
+        this.scope = scope;
+        this.ownership = ownership;
+
+        Config declaration = configType.getAnnotation(Config.class);
+        if (declaration == null) {
+            throw scope.exception(ConfigError.MISSING_CONFIG_MARKER, configType.getName());
+        }
+
+        this.type = declaration.type();
+        this.installationPath = pathForConfig(configType, declaration, this.baseDirectory);
+        this.relativePath = this.baseDirectory.relativize(installationPath);
+        this.pendingRestartPath = this.baseDirectory.resolve("liteconfig").resolve("servers")
+            .resolve("world").resolve(relativePath);
     }
 
     public Path baseDirectory() {
@@ -48,124 +58,89 @@ public final class ConfigPathResolver {
     }
 
     public ConfigType type() {
-        Class<?> current = primaryConfigType;
-        return current == null ? ConfigType.SERVER : pathOf(current).type();
+        return type;
     }
 
     public Optional<Path> activePath() {
-        Class<?> current = primaryConfigType;
-        return current == null ? Optional.empty() : Optional.ofNullable(currentPathForConfig(current));
+        return Optional.ofNullable(currentPath());
     }
 
-    public Path restartPathForConfig(Class<?> configType) {
-        Path current = currentPathForConfig(configType);
-        return current != null ? current : baseDirectory.resolve("liteconfig").resolve("servers")
-            .resolve("world").resolve(pathOf(configType).relativePath());
+    public Path restartPath() {
+        Path current = currentPath();
+        return current != null ? current : pendingRestartPath;
     }
 
-    public Path resolveForConfig(Class<?> configType) {
-        Path file = currentPathForConfig(configType);
-        if (file == null) {
-            return null;
+    public Path resolve() {
+        Path file = currentPath();
+        if (file != null && !file.equals(claimed.get())) {
+            ownership.claim(configType, file, scope);
+            releaseClaim(claimed.getAndSet(file));
         }
-
-        claims.compute(configType, (type, current) -> {
-            ownership.claim(type, file, scope);
-            return new FileClaim(file, current == null ? 1 : current.references() + 1);
-        });
 
         return file;
     }
 
-    public boolean isLocallyWritable(Class<?> configType) {
-        return isLocallyWritable(pathOf(configType).type());
-    }
-
-    private boolean isLocallyWritable(ConfigType type) {
+    public boolean isLocallyWritable() {
         if (closed) {
             return false;
         }
 
         return switch (type) {
             case CLIENT -> Platform.isClient();
-            case WORLD -> worldDirectory != null;
+            case WORLD -> worldPath != null;
             case SERVER -> true;
         };
     }
 
-    public Path currentPathForConfig(Class<?> configType) {
-        ConfigPath configPath = pathOf(configType);
-        if (primaryConfigType == null) {
-            primaryConfigType = configType;
-        }
-
+    public Path currentPath() {
         if (closed) {
             return null;
         }
 
-        if (configPath.type() == ConfigType.WORLD) {
-            Path directory = worldDirectory;
-            return directory == null ? null : directory.resolve(configPath.relativePath());
+        if (type == ConfigType.WORLD) {
+            return worldPath;
         }
 
-        return isLocallyWritable(configPath.type()) ? configPath.installationPath() : null;
+        return isLocallyWritable() ? installationPath : null;
     }
 
-    public boolean bindWorld(Class<?> configType, Path worldRoot) {
-        if (closed || pathOf(configType).type() != ConfigType.WORLD) {
+    public boolean bindWorld(Path worldRoot) {
+        if (closed || type != ConfigType.WORLD) {
             return false;
         }
 
         Path next = worldRoot == null ? null : worldRoot.toAbsolutePath().normalize().resolve("liteconfig");
-        if (java.util.Objects.equals(worldDirectory, next)) {
+        if (Objects.equals(worldDirectory, next)) {
             return false;
         }
 
-        FileClaim previous = claims.remove(configType);
-        if (previous != null) {
-            for (int reference = 0; reference < previous.references(); reference++) {
-                ownership.release(configType, previous.file());
-            }
-        }
+        releaseClaim(claimed.getAndSet(null));
 
         worldDirectory = next;
+        worldPath = next == null ? null : next.resolve(relativePath);
+
         try {
-            resolveForConfig(configType);
+            resolve();
         } catch (RuntimeException | Error failure) {
             worldDirectory = null;
+            worldPath = null;
             throw failure;
         }
 
         return true;
     }
 
-    public void closeForConfig(Class<?> configType) {
+    public void close() {
         closed = true;
-
-        FileClaim claim = claims.remove(configType);
-        if (claim != null) {
-            for (int reference = 0; reference < claim.references(); reference++) {
-                ownership.release(configType, claim.file());
-            }
-        }
-
+        releaseClaim(claimed.getAndSet(null));
         worldDirectory = null;
+        worldPath = null;
     }
 
-    private Config declarationOf(Class<?> configType) {
-        Config config = configType.getAnnotation(Config.class);
-        if (config == null) {
-            throw scope.exception(ConfigError.MISSING_CONFIG_MARKER, configType.getName());
+    private void releaseClaim(Path file) {
+        if (file != null) {
+            ownership.release(configType, file);
         }
-        return config;
-    }
-
-    private ConfigPath pathOf(Class<?> configType) {
-        return paths.computeIfAbsent(configType, type -> {
-            Config declaration = declarationOf(type);
-            Path installationPath = pathForConfig(type, declaration, baseDirectory);
-            return new ConfigPath(declaration.type(), baseDirectory.relativize(installationPath), installationPath);
-        });
     }
 
     private Path pathForConfig(Class<?> configType, Config config, Path base) {
@@ -267,8 +242,4 @@ public final class ConfigPathResolver {
     private LiteConfigException invalidPath(Class<?> configType, String path) {
         return scope.exception(ConfigError.INVALID_CONFIG_PATH, configType.getName(), path);
     }
-
-    private record ConfigPath(ConfigType type, Path relativePath, Path installationPath) {}
-
-    private record FileClaim(Path file, int references) {}
 }

@@ -39,7 +39,7 @@ class ConfigStorageTest {
         Path installation = tempDir.resolve("installation");
         Path world = tempDir.resolve("world");
         ConfigPathResolver resolver = new ConfigPathResolver(
-            installation, TestFixtures.SCOPE, new ConfigFileOwnership());
+            WorldConfig.class, installation, TestFixtures.SCOPE, new ConfigFileOwnership());
         ConfigStorage<WorldConfig> storage = new ConfigStorage<>(WorldConfig.class, resolver, TestFixtures.SCOPE);
 
         storage.write(new WorldConfig());
@@ -48,7 +48,7 @@ class ConfigStorageTest {
         assertFalse(Files.exists(installation));
         assertFalse(Files.exists(world));
 
-        resolver.bindWorld(WorldConfig.class, world);
+        resolver.bindWorld(world);
         storage.write(new WorldConfig());
         Path file = world.resolve("liteconfig").resolve(TestFixtures.SCOPE.modId()).resolve("world.json5");
         assertTrue(Files.exists(file));
@@ -56,7 +56,7 @@ class ConfigStorageTest {
         assertEquals(3, storage.read().value);
 
         String before = Files.readString(file);
-        resolver.bindWorld(WorldConfig.class, null);
+        resolver.bindWorld(null);
         WorldConfig changed = new WorldConfig();
         changed.value = 9;
         storage.write(changed);
@@ -91,7 +91,7 @@ class ConfigStorageTest {
     @Test
     void testThrowsOnIoReadFailure(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
-        Path configPath = new ConfigPathResolver(tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolveForConfig(TestFixtures.SimpleConfig.class);
+        Path configPath = new ConfigPathResolver(TestFixtures.SimpleConfig.class, tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolve();
         Files.createDirectories(configPath);
 
         LiteConfigException ex = assertThrows(
@@ -104,7 +104,7 @@ class ConfigStorageTest {
     @Test
     void testTreatsAnEmptyFileAsMalformedRatherThanAbsent(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
-        Path configPath = new ConfigPathResolver(tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolveForConfig(TestFixtures.SimpleConfig.class);
+        Path configPath = new ConfigPathResolver(TestFixtures.SimpleConfig.class, tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolve();
         Files.createDirectories(configPath.getParent());
 
         for (String content : new String[] {"", "   ", "null"}) {
@@ -132,7 +132,7 @@ class ConfigStorageTest {
     void testThrowsMalformedOnParseFailureAndBacksUpOnDemand(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
 
-        Path configPath = new ConfigPathResolver(tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolveForConfig(TestFixtures.SimpleConfig.class);
+        Path configPath = new ConfigPathResolver(TestFixtures.SimpleConfig.class, tempDir, TestFixtures.SCOPE, new ConfigFileOwnership()).resolve();
         Files.createDirectories(configPath.getParent());
         Files.writeString(configPath, "{ this is not a config");
 
@@ -173,8 +173,8 @@ class ConfigStorageTest {
     @Test
     void testLeavesNoTempFileWhenACommitFails(@TempDir Path tempDir) throws IOException {
         ConfigStorage<TestFixtures.SimpleConfig> storage = createStorage(tempDir, TestFixtures.SimpleConfig.class);
-        Path configPath = new ConfigPathResolver(tempDir, TestFixtures.SCOPE, new ConfigFileOwnership())
-            .resolveForConfig(TestFixtures.SimpleConfig.class);
+        Path configPath = new ConfigPathResolver(TestFixtures.SimpleConfig.class, tempDir, TestFixtures.SCOPE, new ConfigFileOwnership())
+            .resolve();
         Files.createDirectories(configPath);
         Files.writeString(configPath.resolve("child.txt"), "x");
 

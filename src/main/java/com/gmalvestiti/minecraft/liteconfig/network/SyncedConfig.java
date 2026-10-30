@@ -269,7 +269,7 @@ final class SyncedConfig<T> {
         ConfigBytes beforeHash = cachedSnapshot().hash();
         ConfigState.Transition<T> transition = this.config.state().replaceRemote(
             prepared.active, prepared.restartRequired ? prepared.candidate : null,
-            this.config.pathResolver().restartPathForConfig(this.config.model().type()));
+            this.config.pathResolver().restartPath());
 
         Snapshot updated = cachedSnapshot();
         prepared.publishedChanged = !beforeHash.equals(updated.hash());

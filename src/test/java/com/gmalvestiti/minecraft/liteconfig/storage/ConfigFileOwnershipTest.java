@@ -16,7 +16,7 @@ class ConfigFileOwnershipTest {
 
     @Test
     void testRejectsCaseInsensitivePathConflicts(@TempDir Path tempDir) {
-        ConfigFileOwnership ownership = new ConfigFileOwnership();
+        ConfigFileOwnership ownership = new ConfigFileOwnership(true);
         ownership.claim(String.class, tempDir.resolve("Example.json5"), TestFixtures.SCOPE);
 
         LiteConfigException failure = assertThrows(
@@ -25,5 +25,13 @@ class ConfigFileOwnershipTest {
         );
 
         assertEquals(ConfigError.CONFLICTING_CONFIG_PATH, failure.error());
+    }
+
+    @Test
+    void testAllowsCaseDistinctPathsOnCaseSensitiveFileSystems(@TempDir Path tempDir) {
+        ConfigFileOwnership ownership = new ConfigFileOwnership(false);
+        ownership.claim(String.class, tempDir.resolve("Example.json5"), TestFixtures.SCOPE);
+
+        ownership.claim(Integer.class, tempDir.resolve("example.JSON5"), TestFixtures.SCOPE);
     }
 }

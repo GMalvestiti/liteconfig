@@ -159,7 +159,7 @@ class RestartSyncStoreTest {
         throws Exception {
         WorldConfig.afterLoads = 0;
         RegisteredConfig<WorldConfig> original = create(WorldConfig.class, directory);
-        Path fallback = original.pathResolver().restartPathForConfig(WorldConfig.class);
+        Path fallback = original.pathResolver().restartPath();
         Files.createDirectories(fallback.getParent());
         Files.writeString(fallback, "{ restart: 5, immediate: 'local' }");
         leaveCommittedRestartJournal(directory, fallback, "{ restart: 8, immediate: 'local' }");
@@ -565,7 +565,7 @@ class RestartSyncStoreTest {
         assertEquals(8, client.state().published().restart);
         assertTrue(client.state().pending().isEmpty());
         assertTrue(client.pathResolver().activePath().isEmpty());
-        Path fallback = client.pathResolver().restartPathForConfig(WorldConfig.class);
+        Path fallback = client.pathResolver().restartPath();
         assertTrue(fallback.startsWith(servers(clients).resolve("world")));
         assertFalse(Files.exists(fallback));
         ConfigRegistryIsolation.beforeGameStartup();

@@ -107,7 +107,7 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
                 logCompleted(ConfigOperation.LOAD);
             } else {
                 state.replaceLocal(loaded.active(), loaded.pending(),
-                    registration.pathResolver().restartPathForConfig(registration.model().type()));
+                    registration.pathResolver().restartPath());
             }
         } catch (LiteConfigException failure) {
             if (!failure.defect()) {
@@ -208,7 +208,7 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
         RegisteredConfig.CallbackQueue callbacks
     ) {
         ConfigState.Transition<T> transition = state.replaceLocal(next.active(), next.pending(),
-            registration.pathResolver().restartPathForConfig(registration.model().type()));
+            registration.pathResolver().restartPath());
         queueChangeCallbacks(transition, operation, callbacks);
         return transition.published();
     }

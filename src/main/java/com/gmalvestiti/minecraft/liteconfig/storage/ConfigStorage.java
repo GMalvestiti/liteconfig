@@ -43,7 +43,7 @@ public final class ConfigStorage<T> {
     public ConfigStorage(Class<T> configType, ConfigPathResolver pathResolver, ConfigScope scope) {
         this.configType = Objects.requireNonNull(configType, "configType");
         this.pathResolver = Objects.requireNonNull(pathResolver, "pathResolver");
-        pathResolver.resolveForConfig(configType);
+        pathResolver.resolve();
         this.format = ConfigTextFormat.of(ConfigFormat.of(configType));
         this.scope = Objects.requireNonNull(scope, "scope");
     }
@@ -65,13 +65,13 @@ public final class ConfigStorage<T> {
     private record ReadSnapshot(Path path, String text) {}
 
     public T read() {
-        Path path = pathResolver.currentPathForConfig(configType);
+        Path path = pathResolver.currentPath();
 
         if (path == null) {
             if (pathResolver.type() != ConfigType.WORLD) {
                 return null;
             }
-            path = pathResolver.restartPathForConfig(configType);
+            path = pathResolver.restartPath();
         }
 
         lastRead = null;
@@ -123,7 +123,7 @@ public final class ConfigStorage<T> {
     public void write(T data, boolean skipUnchanged) {
         Objects.requireNonNull(data, "data");
 
-        Path path = pathResolver.currentPathForConfig(configType);
+        Path path = pathResolver.currentPath();
         if (path == null) {
             return;
         }
@@ -168,7 +168,7 @@ public final class ConfigStorage<T> {
     }
 
     public PreparedWrite prepareRestartWrite(T data) {
-        Path path = pathResolver.restartPathForConfig(configType);
+        Path path = pathResolver.restartPath();
         try {
             return new PreparedWrite(store(path),
                 render(data).getBytes(StandardCharsets.UTF_8));
@@ -184,10 +184,10 @@ public final class ConfigStorage<T> {
     }
 
     public void backupCorrupted() {
-        Path path = pathResolver.currentPathForConfig(configType);
+        Path path = pathResolver.currentPath();
 
         if (path == null && pathResolver.type() == ConfigType.WORLD) {
-            path = pathResolver.restartPathForConfig(configType);
+            path = pathResolver.restartPath();
         }
 
         if (path == null) {
