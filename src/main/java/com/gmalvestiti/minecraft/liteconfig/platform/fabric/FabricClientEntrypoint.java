@@ -29,7 +29,7 @@ public class FabricClientEntrypoint implements ClientModInitializer {
         });
 
         ClientPlayConnectionEvents.DISCONNECT.register(
-            (handler, client) -> ClientConfigSync.resetClientConnection());
+            (handler, client) -> client.execute(ClientConfigSync::resetClientConnection));
     }
 
     private static void onClientStarted(Minecraft client) {

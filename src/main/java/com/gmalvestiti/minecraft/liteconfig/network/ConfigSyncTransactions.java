@@ -29,13 +29,8 @@ final class ConfigSyncTransactions {
                 throw new IllegalArgumentException("Config sync transaction exceeds pending entry limit");
             }
 
-            Map<String, ConfigBytes> cached = new LinkedHashMap<>(configs);
-            if ((long) pendingEntries + cached.size() > ConfigSyncProtocol.MAX_TRANSACTION_ENTRIES) {
-                throw new IllegalArgumentException("Config sync transaction exceeds pending entry limit");
-            }
-
             long bytes = pendingBytes;
-            for (Map.Entry<String, ConfigBytes> entry : cached.entrySet()) {
+            for (Map.Entry<String, ConfigBytes> entry : configs.entrySet()) {
                 ConfigSyncProtocol.validateId(entry.getKey());
                 ConfigBytes value = entry.getValue();
 
@@ -49,7 +44,7 @@ final class ConfigSyncTransactions {
                 }
             }
 
-            return apply(cached, joining);
+            return apply(configs, joining);
         } catch (RuntimeException failure) {
             clear();
             LiteConfigCommon.error("Failed to receive cached config sync transaction", failure);

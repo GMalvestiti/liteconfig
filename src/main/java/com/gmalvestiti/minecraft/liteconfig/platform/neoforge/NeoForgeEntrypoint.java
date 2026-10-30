@@ -19,10 +19,8 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
-import net.neoforged.neoforge.network.registration.HandlerThread;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
 @Mod(LiteConfigCommon.MOD_ID)
@@ -38,19 +36,15 @@ public class NeoForgeEntrypoint {
     }
 
     private static void onRegisterPayload(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar(LiteConfigCommon.MOD_ID)
-            .optional().executesOn(HandlerThread.NETWORK);
+        PayloadRegistrar registrar = event.registrar(LiteConfigCommon.MOD_ID).optional();
 
         registrar.playToClient(
             ConfigSyncHandshakeS2CPacket.TYPE,
             ConfigSyncHandshakeS2CPacket.STREAM_CODEC,
             (payload, context) -> {
-                Object connection = context.connection();
-                context.enqueueWork(() -> {
-                    if (ClientConfigSync.isCurrentConnection(connection)) {
-                        ClientConfigSync.receiveHandshake(payload);
-                    }
-                });
+                if (ClientConfigSync.isCurrentConnection(context.connection())) {
+                    ClientConfigSync.receiveHandshake(payload);
+                }
             });
 
         registrar.playToServer(
@@ -58,28 +52,22 @@ public class NeoForgeEntrypoint {
             ConfigSyncRequestC2SPacket.STREAM_CODEC,
             (request, context) -> {
                 ServerPlayer player = (ServerPlayer) context.player();
-                MinecraftServer server = player.level().getServer();
 
-                context.enqueueWork(() -> {
-                    if (!ServerConfigSync.isCurrentServer(server)) {
-                        return;
-                    }
+                if (!ServerConfigSync.isCurrentServer(player.level().getServer())) {
+                    return;
+                }
 
-                    ServerConfigSync.payloadsFor(request)
-                        .forEach(payload -> send(player, payload));
-                });
+                ServerConfigSync.payloadsFor(request)
+                    .forEach(payload -> send(player, payload));
             });
 
         registrar.playToClient(
             ConfigSyncS2CPacket.TYPE,
             ConfigSyncS2CPacket.STREAM_CODEC,
             (payload, context) -> {
-                Object connection = context.connection();
-                context.enqueueWork(() -> {
-                    if (ClientConfigSync.isCurrentConnection(connection)) {
-                        ClientConfigSync.receivePayload(payload);
-                    }
-                });
+                if (ClientConfigSync.isCurrentConnection(context.connection())) {
+                    ClientConfigSync.receivePayload(payload);
+                }
             });
     }
 

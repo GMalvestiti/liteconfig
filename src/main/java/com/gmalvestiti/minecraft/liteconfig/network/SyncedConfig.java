@@ -161,13 +161,15 @@ final class SyncedConfig<T> {
     private RestartSyncStore restartStore() {
         String connectionId = ClientConfigSync.connectionIdentity();
 
-        if (restartStore == null || !connectionId.equals(restartConnectionId)) {
-            restartStore = new RestartSyncStore(
-                config.pathResolver().baseDirectory(), config.model().scope(), id(), connectionId);
-            restartConnectionId = connectionId;
-        }
+        synchronized (this.config.state().operationLock()) {
+            if (restartStore == null || !connectionId.equals(restartConnectionId)) {
+                restartStore = new RestartSyncStore(
+                    config.pathResolver().baseDirectory(), config.model().scope(), id(), connectionId);
+                restartConnectionId = connectionId;
+            }
 
-        return restartStore;
+            return restartStore;
+        }
     }
 
     private boolean compatibleRestartCache(ConfigBytes bytes) {
