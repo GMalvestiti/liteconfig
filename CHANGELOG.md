@@ -4,7 +4,7 @@
 - Added NotNull and NotBlank constraints
 - Added synchronization and config type ownership
 - Added world scoped configs
-- Fix @Ignored bug
+- Bug fixes and performance improvements
 
 # 1.2.0
 
