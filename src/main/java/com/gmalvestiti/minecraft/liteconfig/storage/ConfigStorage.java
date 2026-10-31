@@ -177,7 +177,16 @@ public final class ConfigStorage<T> {
         }
     }
 
-    public record PreparedWrite(RestartSyncStore file, byte[] bytes) {
+    public static final class PreparedWrite {
+
+        private final RestartSyncStore file;
+        private final byte[] bytes;
+
+        private PreparedWrite(RestartSyncStore file, byte[] bytes) {
+            this.file = file;
+            this.bytes = bytes;
+        }
+
         public void stage(RestartSyncStore.Transaction transaction) {
             transaction.stageFile(file, bytes);
         }
