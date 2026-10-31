@@ -304,7 +304,7 @@ class JoinRestartSyncTest {
 
     private static void advertise(String id, ConfigBytes payload, boolean joining) {
         ConfigBytes hash = ConfigBytes.of(Hashing.sha256().hashBytes(payload.bytes()).asBytes());
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(joining, Map.of(id, hash)));
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(joining, TestSyncPlatform.serverId(), Map.of(id, hash)));
     }
 
     @Config(name = "join-rules", sync = SyncMode.ENABLED,

@@ -106,7 +106,7 @@ public final class ConfigSyncRegistry {
                 SyncedConfig<?> current = reference.get();
                 if (current != null) {
                     activate(current);
-                    ServerConfigSync.refreshManifest();
+                    ServerConfigSync.announce(current);
                 }
             });
         } catch (RuntimeException | Error failure) {

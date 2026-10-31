@@ -195,6 +195,7 @@ class ConfigSyncRegistryTest {
         TestSyncPlatform.setRequestScheduler(requests::add);
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
             true,
+            TestSyncPlatform.serverId(),
             Map.of(
                 syncId(TestFixtures.SyncedConfig.class),
                 ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
@@ -587,7 +588,7 @@ class ConfigSyncRegistryTest {
         assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
         assertTrue(ServerConfigSync.payloadsFor(
             new ConfigSyncRequestC2SPacket(true, Set.of(config.model().syncId()))).isEmpty());
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         assertNull(config.syncSchema());
         apply(config.model().syncId(), ConfigBytes.of(new byte[]{1, 2, 3}));
@@ -946,7 +947,7 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();
         TestSyncPlatform.setRequestScheduler(requests::add);
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         assertEquals(1, requests.size());
 
@@ -959,7 +960,7 @@ class ConfigSyncRegistryTest {
 
     @Test
     void testLateRegistrationSendsRequestsOnClientThread(@TempDir Path tempDir) throws Exception {
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), Map.of(
             syncId(OtherSyncedConfig.class), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
 
         List<String> threads = new ArrayList<>();
@@ -990,7 +991,7 @@ class ConfigSyncRegistryTest {
         }
         TestSyncPlatform.setRequestScheduler(requests::add);
 
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), Map.of(
             config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         assertTrue(actions.isEmpty());
         assertEquals(1, requests.size());
@@ -1041,11 +1042,12 @@ class ConfigSyncRegistryTest {
             for (int entry = 0; entry < ConfigSyncProtocol.ENTRIES_PER_PACKET; entry++) {
                 hashes.put("example.config." + batch + "." + entry, hash);
             }
-            ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, hashes));
+            ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), hashes));
         }
 
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
             true,
+            TestSyncPlatform.serverId(),
             Map.of("example.config.overflow", hash)));
 
         assertEquals(List.of(TranslationKey.SYNC_FAILED), disconnects);
@@ -1111,7 +1113,6 @@ class ConfigSyncRegistryTest {
         bind.accept(Runnable::run);
 
         assertTrue(ConfigSyncRegistry.get(config.model().syncId()).ready());
-        assertFalse(ServerConfigSync.beginHandshake(true).isEmpty());
         String encoded = "encode:" + Thread.currentThread().getName();
         assertEquals(List.of(encoded, encoded), NetworkThreadConfig.EVENTS);
     }
@@ -1292,6 +1293,7 @@ class ConfigSyncRegistryTest {
         RegisteredConfig<OtherSyncedConfig> config = create(OtherSyncedConfig.class, tempDir);
         ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(
             true,
+            TestSyncPlatform.serverId(),
             Map.of(config.model().syncId(), ConfigBytes.of(new byte[ConfigSyncProtocol.HASH_BYTES]))));
         Deque<Runnable> actions = new ArrayDeque<>();
         List<ConfigSyncRequestC2SPacket> requests = new ArrayList<>();

@@ -4,6 +4,7 @@ import com.gmalvestiti.minecraft.liteconfig.network.ServerConfigSync;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
+import com.gmalvestiti.minecraft.liteconfig.storage.ServerIdStore;
 import com.gmalvestiti.minecraft.liteconfig.registry.ConfigRegistry;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
@@ -12,6 +13,7 @@ import net.minecraft.world.level.storage.LevelResource;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
@@ -21,6 +23,7 @@ public abstract class CommonServerPlatform implements Executor {
 
     public final MinecraftServer server;
     private volatile boolean ready;
+    private volatile UUID serverId;
 
     protected CommonServerPlatform(MinecraftServer server) {
         this.server = Objects.requireNonNull(server, "server");
@@ -84,29 +87,45 @@ public abstract class CommonServerPlatform implements Executor {
     }
 
     public void broadcast(Supplier<List<ConfigSyncS2CPacket>> packets) {
+        sendToRecipients(ConfigSyncS2CPacket.TYPE, packets);
+    }
+
+    public void announce(Supplier<List<ConfigSyncHandshakeS2CPacket>> packets) {
+        sendToRecipients(ConfigSyncHandshakeS2CPacket.TYPE, packets);
+    }
+
+    public void refreshManifest() {
+        announce(() -> ServerConfigSync.beginHandshake(false));
+    }
+
+    public UUID serverId() {
+        UUID id = serverId;
+
+        if (id == null) {
+            synchronized (this) {
+                id = serverId;
+                if (id == null) {
+                    id = ServerIdStore.load(server.getWorldPath(LevelResource.ROOT));
+                    serverId = id;
+                }
+            }
+        }
+
+        return id;
+    }
+
+    private void sendToRecipients(CustomPacketPayload.Type<?> type, Supplier<? extends List<? extends CustomPacketPayload>> packets) {
         execute(() -> {
             List<ServerPlayer> players = server.getPlayerList().getPlayers().stream()
-                .filter(player -> canSend(player, ConfigSyncS2CPacket.TYPE))
+                .filter(player -> canSend(player, type))
                 .toList();
 
             if (players.isEmpty()) {
                 return;
             }
 
-            List<ConfigSyncS2CPacket> payloads = packets.get();
+            List<? extends CustomPacketPayload> payloads = packets.get();
             players.forEach(player -> payloads.forEach(packet -> send(player, packet)));
-        });
-    }
-
-    public void refreshManifest() {
-        execute(() -> {
-            List<ServerPlayer> players = server.getPlayerList().getPlayers().stream()
-                .filter(player -> canSend(player, ConfigSyncHandshakeS2CPacket.TYPE)).toList();
-
-            if (!players.isEmpty()) {
-                List<ConfigSyncHandshakeS2CPacket> packets = ServerConfigSync.beginHandshake(false);
-                players.forEach(player -> packets.forEach(packet -> send(player, packet)));
-            }
         });
     }
 

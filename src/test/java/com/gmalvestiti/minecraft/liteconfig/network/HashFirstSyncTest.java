@@ -289,7 +289,7 @@ class HashFirstSyncTest {
 
     private static void advertise(String id, ConfigBytes payload) {
         ConfigBytes hash = ConfigBytes.of(Hashing.sha256().hashBytes(payload.bytes()).asBytes());
-        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, Map.of(id, hash)));
+        ClientConfigSync.receiveHandshake(new ConfigSyncHandshakeS2CPacket(true, TestSyncPlatform.serverId(), Map.of(id, hash)));
     }
 
     @Config(name = "hash-rules", sync = SyncMode.ENABLED)

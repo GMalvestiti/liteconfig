@@ -1,6 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.support;
 
 import com.gmalvestiti.minecraft.liteconfig.network.ClientConfigSync;
+import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncHandshakeS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncRequestC2SPacket;
 import com.gmalvestiti.minecraft.liteconfig.network.packet.ConfigSyncS2CPacket;
 import com.gmalvestiti.minecraft.liteconfig.platform.CommonClientPlatform;
@@ -14,7 +15,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -33,6 +36,14 @@ public final class TestSyncPlatform {
     private static FakeServer server = new FakeServer(Runnable::run);
 
     private TestSyncPlatform() {}
+
+    public static UUID serverId() {
+        return idFor(client.identity.get());
+    }
+
+    private static UUID idFor(String identity) {
+        return UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
+    }
 
     public static void reset() {
         client = new FakeClient(Runnable::run);
@@ -91,7 +102,7 @@ public final class TestSyncPlatform {
         @Override public ConnectionType connectionType() {
             return remote.getAsBoolean() ? ConnectionType.REMOTE : ConnectionType.DISCONNECTED;
         }
-        @Override public String connectionIdentity() { return identity.get(); }
+        @Override public String connectionIdentity() { return idFor(identity.get()).toString(); }
         @Override public Object connectionToken() { return this; }
         @Override public void request(ConfigSyncRequestC2SPacket packet) { requests.accept(packet); }
         @Override public void disconnect(TranslationKey reason) { disconnects.accept(reason); }
@@ -119,7 +130,9 @@ public final class TestSyncPlatform {
                 }
             });
         }
-        @Override public void refreshManifest() { manifests.run(); }
+        @Override public void announce(Supplier<List<ConfigSyncHandshakeS2CPacket>>         packets) {
+                    manifests.run();
+                }
         @Override protected boolean canSend(ServerPlayer player, CustomPacketPayload.Type<?> type) { return false; }
         @Override protected void send(ServerPlayer player, CustomPacketPayload packet) {}
     }

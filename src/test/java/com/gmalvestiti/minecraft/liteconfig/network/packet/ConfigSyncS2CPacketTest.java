@@ -13,7 +13,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import com.gmalvestiti.minecraft.liteconfig.support.TestSyncPlatform;
 import java.util.Map;
+import java.util.UUID;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
@@ -56,13 +58,15 @@ class ConfigSyncS2CPacketTest {
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void testRoundTripsHashHandshakeThroughVanillaCodec(boolean joining) {
-        ConfigSyncHandshakeS2CPacket original = new ConfigSyncHandshakeS2CPacket(joining, Map.of(
+        ConfigSyncHandshakeS2CPacket original = new ConfigSyncHandshakeS2CPacket(joining, TestSyncPlatform.serverId(), Map.of(
             "example.rules", hash(1),
             "example.client", hash(2)));
         var buffer = Unpooled.buffer();
 
         ConfigSyncHandshakeS2CPacket.STREAM_CODEC.encode(buffer, original);
         assertEquals(joining, buffer.readBoolean());
+        assertEquals(original.serverId().getMostSignificantBits(), buffer.readLong());
+        assertEquals(original.serverId().getLeastSignificantBits(), buffer.readLong());
         assertEquals(2, ByteBufCodecs.VAR_INT.decode(buffer));
         buffer.readerIndex(0);
         ConfigSyncHandshakeS2CPacket decoded = ConfigSyncHandshakeS2CPacket.STREAM_CODEC.decode(buffer);
@@ -125,6 +129,7 @@ class ConfigSyncS2CPacketTest {
             IllegalArgumentException.class,
             () -> new ConfigSyncHandshakeS2CPacket(
                 true,
+                UUID.randomUUID(),
                 Map.of("example.rules", ConfigBytes.of(new byte[31]))));
     }
 

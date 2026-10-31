@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 
 import static com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncProtocol.ENTRIES_PER_PACKET;
@@ -26,6 +27,7 @@ public final class ClientConfigSync {
         new ConfigSyncTransactions(ConfigSyncRegistry::get);
 
     private static volatile CommonClientPlatform PLATFORM;
+    private static volatile UUID SERVER_ID;
 
     private ClientConfigSync() {}
 
@@ -50,12 +52,18 @@ public final class ClientConfigSync {
     }
 
     static String connectionIdentity() {
+        UUID serverId = SERVER_ID;
+        if (serverId != null) {
+            return serverId.toString();
+        }
+
         CommonClientPlatform platform = Objects.requireNonNull(PLATFORM, "client platform");
         return Objects.requireNonNull(platform.connectionIdentity(), "connection identity");
     }
 
     public static void receiveHandshake(ConfigSyncHandshakeS2CPacket handshake) {
         try {
+            SERVER_ID = handshake.serverId();
             for (Map.Entry<String, ConfigBytes> entry : handshake.hashes().entrySet()) {
                 if (!SERVER_CONFIG_HASHES.containsKey(entry.getKey())
                     && SERVER_CONFIG_HASHES.size() == ConfigSyncProtocol.MAX_MANIFEST_ENTRIES) {
@@ -82,6 +90,7 @@ public final class ClientConfigSync {
     }
 
     public static void resetClientConnection() {
+        SERVER_ID = null;
         SERVER_CONFIG_HASHES.clear();
         TRANSACTIONS.clear();
         ConfigSyncRegistry.values().forEach(SyncedConfig::clearRemote);

@@ -10,11 +10,15 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
 import java.util.Map;
+import java.util.UUID;
 
 public record ConfigSyncHandshakeS2CPacket(
     boolean joining,
+    UUID serverId,
     Map<String, ConfigBytes> hashes
 ) implements CustomPacketPayload {
+
+    private static final int HEADER_BYTES = 1 + 2 * Long.BYTES;
 
     public ConfigSyncHandshakeS2CPacket {
         hashes = ConfigPayloads.immutableHashes(hashes);
@@ -29,12 +33,16 @@ public record ConfigSyncHandshakeS2CPacket(
 
     private static void encode(ByteBuf buffer, ConfigSyncHandshakeS2CPacket payload) {
         buffer.writeBoolean(payload.joining);
+        buffer.writeLong(payload.serverId.getMostSignificantBits());
+        buffer.writeLong(payload.serverId.getLeastSignificantBits());
         ConfigPayloads.encodeEntries(buffer, payload.hashes);
     }
 
     private static ConfigSyncHandshakeS2CPacket decode(ByteBuf buffer) {
-        ConfigSyncProtocol.requireReadable(buffer, 1, "join flag");
-        return new ConfigSyncHandshakeS2CPacket(buffer.readBoolean(), ConfigPayloads.decodeHashes(buffer));
+        ConfigSyncProtocol.requireReadable(buffer, HEADER_BYTES, "handshake header");
+        boolean joining = buffer.readBoolean();
+        UUID serverId = new UUID(buffer.readLong(), buffer.readLong());
+        return new ConfigSyncHandshakeS2CPacket(joining, serverId, ConfigPayloads.decodeHashes(buffer));
     }
 
     @Override

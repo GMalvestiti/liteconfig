@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -41,12 +42,20 @@ public final class ServerConfigSync {
         }
     }
 
-    public static List<ConfigSyncHandshakeS2CPacket> beginHandshake(boolean joining) {
-        List<SyncedConfig<?>> local = ConfigSyncRegistry.localValues();
-        if (local.isEmpty()) {
-            return List.of();
+    static void announce(SyncedConfig<?> synced) {
+        CommonServerPlatform platform = CommonServerPlatform.current();
+        if (platform != null) {
+            platform.announce(() -> handshake(platform, List.of(synced), false));
         }
+    }
 
+    public static List<ConfigSyncHandshakeS2CPacket> beginHandshake(boolean joining) {
+        CommonServerPlatform platform = CommonServerPlatform.current();
+        return platform == null ? List.of() : handshake(platform, ConfigSyncRegistry.localValues(), joining);
+    }
+
+    private static List<ConfigSyncHandshakeS2CPacket> handshake(
+        CommonServerPlatform platform, List<SyncedConfig<?>> local, boolean joining) {
         Map<String, ConfigBytes> hashes = new TreeMap<>();
         for (SyncedConfig<?> synced : local) {
             if (synced.ready() && synced.locallyActive()) {
@@ -65,11 +74,12 @@ public final class ServerConfigSync {
             throw failure;
         }
 
+        UUID serverId = platform.serverId();
         List<Map<String, ConfigBytes>> batches = ConfigPayloads.batches(hashes);
         List<ConfigSyncHandshakeS2CPacket> packets = new ArrayList<>(batches.size());
 
         for (Map<String, ConfigBytes> batch : batches) {
-            packets.add(new ConfigSyncHandshakeS2CPacket(joining, batch));
+            packets.add(new ConfigSyncHandshakeS2CPacket(joining, serverId, batch));
         }
 
         return packets;
