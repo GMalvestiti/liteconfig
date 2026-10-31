@@ -12,10 +12,6 @@ public record ConfigExtensionLookup(String label, boolean hasBeforeSave) {
             ConfigExtension.class.isAssignableFrom(rootType) && overridesBeforeSave(rootType));
     }
 
-    public ConfigExtension resolve(Object root) {
-        return root instanceof ConfigExtension found ? found : null;
-    }
-
     private static boolean overridesBeforeSave(Class<?> type) {
         try {
             Method method = type.getMethod("beforeSave");

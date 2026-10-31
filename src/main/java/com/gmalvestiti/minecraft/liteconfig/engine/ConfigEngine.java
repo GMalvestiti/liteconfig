@@ -92,8 +92,7 @@ public final class ConfigEngine<T> {
     }
 
     private void invoke(String hook, T root, Consumer<ConfigExtension> call) {
-        ConfigExtension extension = model.extensions().resolve(root);
-        if (extension == null) {
+        if (!(root instanceof ConfigExtension extension)) {
             return;
         }
 
