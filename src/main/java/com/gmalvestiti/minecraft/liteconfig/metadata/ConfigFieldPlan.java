@@ -32,9 +32,7 @@ public final class ConfigFieldPlan {
     private ConfigFieldPlan(Class<?> rootType) {
         Builder builder = new Builder();
 
-        synchronized (LiteConfig.codecs()) {
-            builder.warm(rootType);
-        }
+        builder.warm(rootType);
 
         byType = Map.copyOf(builder.byType);
         descendable = Set.copyOf(builder.descendable);
