@@ -105,8 +105,9 @@ public final class ConfigSyncRegistry {
             runOnMainThread(() -> {
                 SyncedConfig<?> current = reference.get();
                 if (current != null) {
-                    activate(current);
-                    ServerConfigSync.announce(current);
+                    if (activateQuietly(current)) {
+                        ServerConfigSync.announce(current);
+                    }
                 }
             });
         } catch (RuntimeException | Error failure) {
@@ -134,9 +135,21 @@ public final class ConfigSyncRegistry {
         }
 
         runOnMainThread(() -> {
-            SYNCED.values().forEach(ConfigSyncRegistry::activate);
+            for (SyncedConfig<?> synced : List.copyOf(SYNCED.values())) {
+                activateQuietly(synced);
+            }
             ServerConfigSync.refreshManifest();
         });
+    }
+
+    private static boolean activateQuietly(SyncedConfig<?> synced) {
+        try {
+            activate(synced);
+            return true;
+        } catch (RuntimeException | Error failure) {
+            LiteConfigCommon.error("Config sync disabled for " + synced.id(), failure);
+            return false;
+        }
     }
 
     private static void activate(SyncedConfig<?> synced) {
@@ -152,7 +165,6 @@ public final class ConfigSyncRegistry {
                 synced.close();
             }
 
-            LiteConfigCommon.error("Failed to initialize config sync", failure);
             throw failure;
         }
     }

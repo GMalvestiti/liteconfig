@@ -258,26 +258,24 @@ class ConfigSyncLimitsTest {
     }
 
     @Test
-    void activationRejectsAnOversizedEarlyPendingSelection(@TempDir Path directory) throws Exception {
+    void activationSkipsAnOversizedEarlyPendingSelection(@TempDir Path directory) throws Exception {
         ConfigRegistryIsolation.beforeGameStartup();
         try (ConfigHolder<PayloadConfig> holder = holder(PayloadConfig.class, directory)) {
             assertTrue(holder.update(value ->
                 value.second = new SizedValue(ConfigSyncProtocol.MAX_CONFIG_BYTES)).accepted());
             assertTrue(holder.pending().isPresent());
-            LiteConfigException failure = assertThrows(LiteConfigException.class, TestSyncPlatform::reset);
-            assertEquals(ConfigError.VALIDATION_FAILED, failure.error());
+            TestSyncPlatform.reset();
             assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
             assertTrue(ConfigSyncRegistry.localValues().isEmpty());
         }
     }
 
     @Test
-    void activationRejectsOversizedEarlyDefaults(@TempDir Path directory) throws Exception {
+    void activationSkipsOversizedEarlyDefaults(@TempDir Path directory) throws Exception {
         ConfigRegistryIsolation.beforeGameStartup();
         try (ConfigHolder<OversizedDefaults> holder = holder(OversizedDefaults.class, directory)) {
             assertEquals(ConfigSyncProtocol.MAX_CONFIG_BYTES, holder.data().first.size());
-            LiteConfigException failure = assertThrows(LiteConfigException.class, TestSyncPlatform::reset);
-            assertEquals(ConfigError.VALIDATION_FAILED, failure.error());
+            TestSyncPlatform.reset();
             assertTrue(ServerConfigSync.beginHandshake(true).isEmpty());
             assertTrue(ConfigSyncRegistry.localValues().isEmpty());
         }
