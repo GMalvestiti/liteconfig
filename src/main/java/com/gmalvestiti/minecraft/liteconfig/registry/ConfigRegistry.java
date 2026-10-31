@@ -2,7 +2,7 @@ package com.gmalvestiti.minecraft.liteconfig.registry;
 
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigSettings;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
-import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.network.ConfigSyncRegistry;
 import com.gmalvestiti.minecraft.liteconfig.storage.ConfigFileOwnership;
@@ -61,7 +61,7 @@ public final class ConfigRegistry {
 
     private static void initializeConfigClass(ConfigSettings<?> settings, RegistrationKey key) {
         Class<?> type = settings.type();
-        if (type.getAnnotation(Config.class) == null) {
+        if (DeclaredConfig.of(type).type() == null) {
             throw settings.scope().exception(ConfigError.MISSING_CONFIG_MARKER, type.getName());
         }
 
@@ -276,10 +276,10 @@ public final class ConfigRegistry {
         }
 
         private static RegistrationKey of(Class<?> type, Path baseDirectory, String modId) {
-            Config declaration = type.getAnnotation(Config.class);
+            DeclaredConfig declaration = DeclaredConfig.of(type);
 
-            boolean world = declaration != null && declaration.type() == ConfigType.WORLD;
-            boolean scoped = declaration != null && declaration.modIdDirectory();
+            boolean world = declaration.type() == ConfigType.WORLD;
+            boolean scoped = declaration.modIdDirectory();
 
             return new RegistrationKey(type, world ? null : baseDirectory, scoped ? modId : null);
         }

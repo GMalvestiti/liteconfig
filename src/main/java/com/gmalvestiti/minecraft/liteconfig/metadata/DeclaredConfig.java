@@ -1,5 +1,7 @@
 package com.gmalvestiti.minecraft.liteconfig.metadata;
 
+import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
+import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.annotations.Entry;
@@ -28,7 +30,11 @@ public final class DeclaredConfig {
 
     private final List<String> comment;
     private final int version;
-    private final boolean sync;
+    private final SyncMode syncMode;
+    private final ConfigType type;
+    private final RestartSyncPolicy restartSyncPolicy;
+    private final boolean readOnly;
+    private final boolean modIdDirectory;
     private final List<Property> properties;
     private final Map<String, Property> byKey;
     private final List<KeyProblem> keyProblems;
@@ -38,7 +44,11 @@ public final class DeclaredConfig {
 
         this.comment = config == null ? List.of() : lines(config.comment());
         this.version = config == null ? 0 : config.version();
-        this.sync = config != null && config.sync() == SyncMode.ENABLED;
+        this.syncMode = config == null ? SyncMode.DISABLED : config.sync();
+        this.type = config == null ? null : config.type();
+        this.restartSyncPolicy = config == null ? RestartSyncPolicy.DEFER : config.restartSyncPolicy();
+        this.readOnly = config != null && config.readOnly();
+        this.modIdDirectory = config != null && config.modIdDirectory();
 
         Map<String, Property> described = new LinkedHashMap<>();
         List<KeyProblem> foundKeyProblems = new ArrayList<>();
@@ -76,7 +86,27 @@ public final class DeclaredConfig {
     }
 
     public boolean sync() {
-        return sync;
+        return syncMode == SyncMode.ENABLED;
+    }
+
+    public SyncMode syncMode() {
+        return syncMode;
+    }
+
+    public ConfigType type() {
+        return type;
+    }
+
+    public RestartSyncPolicy restartSyncPolicy() {
+        return restartSyncPolicy;
+    }
+
+    public boolean readOnly() {
+        return readOnly;
+    }
+
+    public boolean modIdDirectory() {
+        return modIdDirectory;
     }
 
     public List<Property> properties() {

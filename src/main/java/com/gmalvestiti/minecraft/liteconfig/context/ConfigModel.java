@@ -1,7 +1,6 @@
 package com.gmalvestiti.minecraft.liteconfig.context;
 
 import com.gmalvestiti.minecraft.liteconfig.api.SyncMode;
-import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigScope;
@@ -10,6 +9,7 @@ import com.gmalvestiti.minecraft.liteconfig.reflection.ConfigFieldAccess;
 import com.gmalvestiti.minecraft.liteconfig.reflection.listener.ConfigFieldListeners;
 import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigFieldPlan;
 import com.gmalvestiti.minecraft.liteconfig.metadata.ConfigMetadataFactory;
+import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 
 import java.util.Objects;
 
@@ -52,8 +52,7 @@ public record ConfigModel<T>(
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(scope, "scope");
 
-        Config config = type.getAnnotation(Config.class);
-        if (config != null && config.sync() == SyncMode.INHERIT) {
+        if (DeclaredConfig.of(type).syncMode() == SyncMode.INHERIT) {
             throw scope.exception(ConfigError.INVALID_CONFIG_SYNC, type.getName());
         }
 

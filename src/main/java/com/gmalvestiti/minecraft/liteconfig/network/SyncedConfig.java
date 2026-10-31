@@ -4,7 +4,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.gmalvestiti.minecraft.liteconfig.api.RestartSyncPolicy;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
-import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.exception.ConfigError;
 import com.gmalvestiti.minecraft.liteconfig.engine.state.ConfigState;
@@ -39,9 +39,7 @@ final class SyncedConfig<T> {
         this.syncSchema = Objects.requireNonNull(config.syncSchema(), "syncSchema");
         this.carriesRestartValues = config.model().metadata().synced().stream()
             .anyMatch(ConfigProperty::restart);
-        Config declaration = config.model().type().getAnnotation(Config.class);
-        this.restartSyncPolicy = declaration == null
-            ? RestartSyncPolicy.DEFER : declaration.restartSyncPolicy();
+        this.restartSyncPolicy = DeclaredConfig.of(config.model().type()).restartSyncPolicy();
     }
 
     static <T> SyncedConfig<T> of(RegisteredConfig<T> config) {

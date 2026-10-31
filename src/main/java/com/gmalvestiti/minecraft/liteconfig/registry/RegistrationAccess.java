@@ -4,7 +4,7 @@ import com.gmalvestiti.minecraft.liteconfig.api.ConfigHolder;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigSubscription;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
 import com.gmalvestiti.minecraft.liteconfig.api.UpdateResult;
-import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
+import com.gmalvestiti.minecraft.liteconfig.metadata.DeclaredConfig;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigMetadata;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.engine.ConfigEventNotifier;
@@ -39,7 +39,7 @@ final class RegistrationAccess<T> implements ConfigHolder<T> {
         this.state = registration.state();
         this.configScope = registration.model().scope();
         this.typeName = registration.model().typeName();
-        this.readOnly = registration.model().type().getAnnotation(Config.class).readOnly();
+        this.readOnly = DeclaredConfig.of(registration.model().type()).readOnly();
     }
 
     @Override

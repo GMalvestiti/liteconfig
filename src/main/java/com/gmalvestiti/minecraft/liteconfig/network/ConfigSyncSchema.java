@@ -2,7 +2,6 @@ package com.gmalvestiti.minecraft.liteconfig.network;
 
 import com.google.common.hash.Hashing;
 import com.gmalvestiti.minecraft.liteconfig.api.ConfigType;
-import com.gmalvestiti.minecraft.liteconfig.api.annotations.Config;
 import com.gmalvestiti.minecraft.liteconfig.api.metadata.ConfigProperty;
 import com.gmalvestiti.minecraft.liteconfig.api.spi.Violation;
 import com.gmalvestiti.minecraft.liteconfig.context.ConfigModel;
@@ -51,7 +50,7 @@ public final class ConfigSyncSchema<T> {
             values.add(new SyncedValue(property.path(), chain, type, resolved.codec(), resolved.schema(), property.restart()));
         }
 
-        Config declaration = model.type().getAnnotation(Config.class);
+        DeclaredConfig declaration = DeclaredConfig.of(model.type());
         StringBuilder shape = new StringBuilder()
             .append(model.typeName()).append('|')
             .append(declaration.type()).append('|')
@@ -73,8 +72,8 @@ public final class ConfigSyncSchema<T> {
     }
 
     public static <T> ConfigSyncSchema<T> create(ConfigModel<T> model) {
-        Config declaration = model.type().getAnnotation(Config.class);
-        return declaration == null || declaration.type() == ConfigType.CLIENT
+        ConfigType type = DeclaredConfig.of(model.type()).type();
+        return type == null || type == ConfigType.CLIENT
             || model.metadata().synced().isEmpty() ? null : new ConfigSyncSchema<>(model);
     }
 
