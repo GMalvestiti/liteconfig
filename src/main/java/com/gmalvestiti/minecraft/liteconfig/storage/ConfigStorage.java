@@ -10,6 +10,7 @@ import com.gmalvestiti.minecraft.liteconfig.network.RestartSyncStore;
 import com.gmalvestiti.minecraft.liteconfig.storage.format.ConfigTextFormat;
 import com.google.gson.JsonObject;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -23,8 +24,11 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 public final class ConfigStorage<T> {
 
@@ -32,6 +36,7 @@ public final class ConfigStorage<T> {
     private static final String BACKUP_SUFFIX = ".corrupt-";
     private static final DateTimeFormatter BACKUP_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC);
     private static final int REPLACE_ATTEMPTS = 5;
+    private static final int MAX_BACKUPS = 3;
 
     private final Class<T> configType;
     private final ConfigPathResolver pathResolver;
@@ -39,6 +44,7 @@ public final class ConfigStorage<T> {
     private final ConfigScope scope;
     private volatile CachedStore cachedStore;
     private volatile ReadSnapshot lastRead;
+    private volatile boolean crashLeftoversCleaned;
 
     public ConfigStorage(Class<T> configType, ConfigPathResolver pathResolver, ConfigScope scope) {
         this.configType = Objects.requireNonNull(configType, "configType");
@@ -75,6 +81,11 @@ public final class ConfigStorage<T> {
         }
 
         lastRead = null;
+        if (!crashLeftoversCleaned) {
+            crashLeftoversCleaned = true;
+            deleteMatching(path, TEMP_SUFFIX + "-", 0);
+        }
+
         byte[] bytes = store(path).readFile();
         if (bytes == null) {
             return null;
@@ -154,7 +165,7 @@ public final class ConfigStorage<T> {
         Path temp = temporarySibling(path);
         try {
             Files.createDirectories(path.getParent());
-            Files.writeString(temp, rendered, StandardCharsets.UTF_8);
+            writeDurably(temp, rendered.getBytes(StandardCharsets.UTF_8));
             replace(temp, path);
         } catch (IOException | RuntimeException ex) {
             throw scope.exception(ConfigError.IO_SAVE_FAILURE, ex, path);
@@ -210,9 +221,36 @@ public final class ConfigStorage<T> {
         try {
             Files.move(path, backup, StandardCopyOption.REPLACE_EXISTING);
         } catch (NoSuchFileException ignored) {
+            return;
         } catch (IOException ex) {
             throw scope.exception(ConfigError.IO_SAVE_FAILURE, ex, path);
         }
+
+        deleteMatching(path, BACKUP_SUFFIX, MAX_BACKUPS);
+    }
+
+    private void writeDurably(Path file, byte[] bytes) throws IOException {
+        try (FileOutputStream out = new FileOutputStream(file.toFile())) {
+            out.write(bytes);
+            out.getFD().sync();
+        }
+    }
+
+    private void deleteMatching(Path path, String infix, int keep) {
+        String prefix = path.getFileName() + infix;
+        List<Path> matches;
+
+        try (Stream<Path> siblings = Files.list(path.getParent())) {
+            matches = siblings
+                .filter(sibling -> sibling.getFileName().toString().startsWith(prefix))
+                .sorted(Comparator.comparing((Path sibling) -> sibling.getFileName().toString()).reversed())
+                .skip(keep)
+                .toList();
+        } catch (IOException | RuntimeException ignored) {
+            return;
+        }
+
+        matches.forEach(this::deleteQuietly);
     }
 
     private Path temporarySibling(Path path) {
